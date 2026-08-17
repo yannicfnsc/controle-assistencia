@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell,
+  BarChart, Bar, LineChart, Line, PieChart, Pie, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell,
 } from "recharts";
 import {
   ClipboardList, PlusCircle, ListChecks, BarChart3, ChevronLeft, ChevronRight,
@@ -135,16 +135,6 @@ const MONTH_NAMES = ["janeiro","fevereiro","março","abril","maio","junho","julh
    ============================================================ */
 const STORAGE_KEY = "controle-assistencia:records";
 
-// Storage adapter for the standalone web app/PWA.
-const appStorage = {
-  async get(key) {
-    return { value: window.localStorage.getItem(key) };
-  },
-  async set(key, value) {
-    window.localStorage.setItem(key, value);
-  },
-};
-
 /* ============================================================
    SMALL UI PRIMITIVES
    ============================================================ */
@@ -260,13 +250,13 @@ export default function App() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await appStorage.get(STORAGE_KEY, true);
+        const res = await window.storage.get(STORAGE_KEY, true);
         if (!cancelled) {
           if (res && res.value) {
             setRecords(JSON.parse(res.value));
           } else {
             setRecords(SEED_DATA);
-            await appStorage.set(STORAGE_KEY, JSON.stringify(SEED_DATA), true);
+            await window.storage.set(STORAGE_KEY, JSON.stringify(SEED_DATA), true);
           }
         }
       } catch (e) {
@@ -280,7 +270,7 @@ export default function App() {
     setRecords(next);
     setSaving(true);
     try {
-      await appStorage.set(STORAGE_KEY, JSON.stringify(next), true);
+      await window.storage.set(STORAGE_KEY, JSON.stringify(next), true);
     } catch (e) {
       setToast("Não foi possível salvar. Tente novamente.");
     } finally {
@@ -640,7 +630,15 @@ function NovoChamado({ onAdd }) {
             <input type="date" style={inputStyle()} value={form.previsaoVisita} onChange={set("previsaoVisita")} />
           </Field>
           <Field label="Data da visita">
-            <input type="date" style={inputStyle()} value={form.dataVisita} onChange={set("dataVisita")} />
+            <input
+              type="date"
+              style={inputStyle()}
+              value={form.dataVisita}
+              onChange={(e) => {
+                const v = e.target.value;
+                setForm((f) => ({ ...f, dataVisita: v, status: v ? "✅ Concluído" : f.status }));
+              }}
+            />
           </Field>
         </div>
 
@@ -819,7 +817,16 @@ function EditModal({ record, onClose, onSave }) {
           <input style={inputStyle()} value={tecnico} onChange={(e) => setTecnico(e.target.value)} />
         </Field>
         <Field label="Data da visita">
-          <input type="date" style={inputStyle()} value={dataVisita} onChange={(e) => setDataVisita(e.target.value)} />
+          <input
+            type="date"
+            style={inputStyle()}
+            value={dataVisita}
+            onChange={(e) => {
+              const v = e.target.value;
+              setDataVisita(v);
+              if (v) setStatus("✅ Concluído");
+            }}
+          />
         </Field>
         {getSLA(record.entrada, dataVisita) && (
           <div style={{ marginBottom: 12, marginTop: -6 }}>
@@ -903,14 +910,21 @@ function Relatorio({ records }) {
     return { counts: m, total };
   }, [periodRecords]);
 
-  // breakdown by técnico for the period
-  const tecBreakdown = useMemo(() => {
+  // status composition donut for the period
+  const statusDonut = useMemo(() => {
+    return STATUS_ORDER.filter((k) => k !== "atrasado").map((k) => ({
+      name: STATUS_META[k].short, value: counts[k] || 0, color: STATUS_META[k].color,
+    })).filter((d) => d.value > 0);
+  }, [counts]);
+
+  // serviços ranking for the period
+  const servicosBreakdown = useMemo(() => {
     const m = {};
     periodRecords.forEach((r) => {
-      const key = r.tecnico || "Não atribuído";
+      const key = r.servicos || "Não informado";
       m[key] = (m[key] || 0) + 1;
     });
-    return Object.entries(m).sort((a, b) => b[1] - a[1]);
+    return Object.entries(m).sort((a, b) => b[1] - a[1]).slice(0, 7);
   }, [periodRecords]);
 
   return (
@@ -961,20 +975,51 @@ function Relatorio({ records }) {
         </div>
       </div>
 
+      {statusDonut.length > 0 && (
+        <div style={{ marginTop: 18 }}>
+          <SectionLabel>Composição do período</SectionLabel>
+          <Card style={{ padding: 12, marginTop: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <ResponsiveContainer width={130} height={130}>
+                <PieChart>
+                  <Pie data={statusDonut} dataKey="value" nameKey="name" innerRadius={38} outerRadius={58} paddingAngle={2} strokeWidth={0}>
+                    {statusDonut.map((d, i) => <Cell key={i} fill={d.color} />)}
+                  </Pie>
+                  <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: `1px solid ${COLORS.line}` }} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
+                {statusDonut.map((d) => (
+                  <div key={d.name} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 12.5 }}>
+                    <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: "50%", background: d.color, display: "inline-block" }} />
+                      {d.name}
+                    </span>
+                    <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, color: COLORS.ink }}>
+                      {d.value} <span style={{ color: COLORS.inkSoft, fontWeight: 500 }}>({Math.round((d.value / periodRecords.length) * 100)}%)</span>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </Card>
+        </div>
+      )}
+
       <div style={{ marginTop: 18 }}>
         <SectionLabel>Últimos 8 {mode === "semanal" ? "semanas" : "meses"}</SectionLabel>
         <Card style={{ padding: "12px 8px 6px", marginTop: 8 }}>
           <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={trend} margin={{ top: 4, right: 4, left: -22, bottom: 0 }}>
+            <LineChart data={trend} margin={{ top: 4, right: 8, left: -22, bottom: 0 }}>
               <CartesianGrid strokeDasharray="2 4" stroke={COLORS.lineSoft} vertical={false} />
               <XAxis dataKey="label" tick={{ fontSize: 10.5, fill: COLORS.inkSoft }} axisLine={{ stroke: COLORS.line }} tickLine={false} />
               <YAxis tick={{ fontSize: 10.5, fill: COLORS.inkSoft }} axisLine={false} tickLine={false} allowDecimals={false} />
               <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: `1px solid ${COLORS.line}` }} />
               <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Bar dataKey="Concluídos" stackId="a" fill={COLORS.green} radius={[0, 0, 0, 0]} />
-              <Bar dataKey="Designados" stackId="a" fill={COLORS.blueMid} radius={[0, 0, 0, 0]} />
-              <Bar dataKey="Abertos/Agend." stackId="a" fill={COLORS.amber} radius={[3, 3, 0, 0]} />
-            </BarChart>
+              <Line type="monotone" dataKey="Concluídos" stroke={COLORS.green} strokeWidth={2.2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+              <Line type="monotone" dataKey="Designados" stroke={COLORS.blueMid} strokeWidth={2.2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+              <Line type="monotone" dataKey="Abertos/Agend." stroke={COLORS.amber} strokeWidth={2.2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+            </LineChart>
           </ResponsiveContainer>
         </Card>
       </div>
@@ -1010,23 +1055,26 @@ function Relatorio({ records }) {
       </div>
 
       <div style={{ marginTop: 18 }}>
-        <SectionLabel>Chamados por técnico neste período</SectionLabel>
+        <SectionLabel>Serviços mais solicitados</SectionLabel>
         <Card style={{ padding: 12, marginTop: 8 }}>
-          {tecBreakdown.length === 0 && <div style={{ fontSize: 12.5, color: COLORS.inkSoft }}>Sem chamados no período.</div>}
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {tecBreakdown.map(([name, n]) => {
-              const max = tecBreakdown[0][1];
-              return (
-                <div key={name} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 12, width: 108, flexShrink: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</span>
-                  <div style={{ flex: 1, background: COLORS.lineSoft, borderRadius: 4, height: 8, overflow: "hidden" }}>
-                    <div style={{ width: `${(n / max) * 100}%`, height: "100%", background: COLORS.blueMid, borderRadius: 4 }} />
+          {servicosBreakdown.length === 0 ? (
+            <div style={{ fontSize: 12.5, color: COLORS.inkSoft }}>Sem chamados no período.</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {servicosBreakdown.map(([name, n]) => {
+                const max = servicosBreakdown[0][1];
+                return (
+                  <div key={name} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 12, width: 120, flexShrink: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</span>
+                    <div style={{ flex: 1, background: COLORS.lineSoft, borderRadius: 4, height: 8, overflow: "hidden" }}>
+                      <div style={{ width: `${(n / max) * 100}%`, height: "100%", background: COLORS.steel, borderRadius: 4 }} />
+                    </div>
+                    <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, width: 20, textAlign: "right", color: COLORS.inkSoft }}>{n}</span>
                   </div>
-                  <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, width: 20, textAlign: "right", color: COLORS.inkSoft }}>{n}</span>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </Card>
       </div>
     </div>
@@ -1039,51 +1087,46 @@ const navBtnStyle = {
 };
 
 /* ============================================================
-   PROGRAMAÇÃO DO DIA — replica a aba "RELATÓRIO DIÁRIO" da planilha
-   Filtra por Previsão de Visita = data escolhida
+   ABA "HOJE" — um único painel, na ordem da rotina real:
+   1) Em cima: cards de "Operação do Dia" (Entradas/Programadas/Concluídas/Designados)
+      — copiados na manhã seguinte, como relatório do que foi feito
+   2) Embaixo: lista do que está previsto (Previsão Visita = data)
+      — copiada de manhã, antes de sair a equipe
+   Navegação por data compartilhada entre as duas partes.
    ============================================================ */
 function ProgramacaoDia({ records, onToast }) {
   const [dateISO, setDateISO] = useState(toISO(new Date()));
-  const [copied, setCopied] = useState(false);
-
-  const dayRecords = useMemo(() => {
-    return records
-      .filter((r) => r.previsaoVisita === dateISO)
-      .map((r) => ({ ...r, _status: normalizeStatus(r.status) }))
-      .sort((a, b) => (a.tecnico || "").localeCompare(b.tecnico || ""));
-  }, [records, dateISO]);
+  const [copiedAll, setCopiedAll] = useState(false);
+  const [showTextModal, setShowTextModal] = useState(false);
 
   const dateObj = parseISO(dateISO);
   const weekdayLabel = dateObj ? WEEKDAY_ABBR[dateObj.getDay()] : "";
   const isToday = dateISO === toISO(new Date());
-
   const shiftDate = (n) => setDateISO(toISO(addDays(parseISO(dateISO), n)));
 
-  const buildText = () => {
-    const [y, m, d] = dateISO.split("-");
-    const header = `PROGRAMAÇÃO — ${d}/${m}/${y}`;
-    if (dayRecords.length === 0) return `${header}\n\nNenhuma visita prevista para esta data.`;
-    const lines = dayRecords.map((r, i) => {
-      const parts = [r.cliente || r.endereco || "Sem cliente"];
-      if (r.endereco && r.cliente) parts.push(r.endereco);
-      if (r.produto) parts.push(r.produto);
-      const tec = r.tecnico ? `Téc: ${r.tecnico}` : "Téc: não atribuído";
-      return `${i + 1}. ${parts.join(" — ")} — ${tec}`;
-    });
-    return `${header}\n\n${lines.join("\n")}`;
-  };
+  useEffect(() => { setCopiedAll(false); }, [dateISO]);
 
-  const copyText = async () => {
-    const text = buildText();
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      onToast && onToast("Programação copiada.");
-      setTimeout(() => setCopied(false), 2000);
-    } catch (e) {
-      onToast && onToast("Não foi possível copiar automaticamente.");
-    }
-  };
+  const withStatus = useMemo(() => records.map((r) => ({ ...r, _status: normalizeStatus(r.status) })), [records]);
+
+  const stats = useMemo(() => {
+    const entradas = records.filter((r) => r.entrada === dateISO);
+    const designados = records.filter((r) => r.previsaoVisita === dateISO && r.servicos === "LEVANTAMENTO DESIGNADO");
+    const programadas = records.filter((r) => r.previsaoVisita === dateISO).length - designados.length;
+    const concluidas = records.filter((r) => r.dataVisita === dateISO && normalizeStatus(r.status) === "concluido");
+    return {
+      entradas: entradas.length,
+      programadas: Math.max(programadas, 0),
+      concluidas: concluidas.length,
+      designados: designados.length,
+    };
+  }, [records, dateISO]);
+  const diff = stats.programadas - stats.concluidas;
+
+  const dayRecords = useMemo(() => {
+    return withStatus
+      .filter((r) => r.previsaoVisita === dateISO)
+      .sort((a, b) => (a.tecnico || "").localeCompare(b.tecnico || ""));
+  }, [withStatus, dateISO]);
 
   const byTecnico = useMemo(() => {
     const m = {};
@@ -1094,9 +1137,75 @@ function ProgramacaoDia({ records, onToast }) {
     return Object.entries(m).sort((a, b) => a[0].localeCompare(b[0]));
   }, [dayRecords]);
 
+  const buildFullText = () => {
+    const [y, m, d] = dateISO.split("-");
+    const lines = [
+      `RELATÓRIO DO DIA — ${d}/${m}/${y}`,
+      ``,
+      `— OPERAÇÃO DO DIA —`,
+      `Entradas: ${stats.entradas}`,
+      `Programadas: ${stats.programadas}`,
+      `Concluídas: ${stats.concluidas}`,
+      `Levantamentos designados: ${stats.designados}`,
+      diff === 0
+        ? (stats.programadas > 0 ? `Todas as visitas programadas foram concluídas.` : `Nenhuma visita programada para este dia.`)
+        : diff > 0
+          ? `${diff} visita(s) programada(s) não concluída(s) no dia.`
+          : `${Math.abs(diff)} visita(s) concluída(s) além do programado.`,
+      ``,
+      `— PROGRAMAÇÃO PREVISTA —`,
+    ];
+    if (dayRecords.length === 0) {
+      lines.push(`Nenhuma visita prevista para esta data.`);
+    } else {
+      dayRecords.forEach((r, i) => {
+        const parts = [r.cliente || r.endereco || "Sem cliente"];
+        if (r.endereco && r.cliente) parts.push(r.endereco);
+        if (r.produto) parts.push(r.produto);
+        const tec = r.tecnico ? `Téc: ${r.tecnico}` : "Téc: não atribuído";
+        lines.push(`${i + 1}. ${parts.join(" — ")} — ${tec}`);
+      });
+    }
+    return lines.join("\n");
+  };
+
+  const copyAll = async () => {
+    const text = buildFullText();
+    // 1) tenta a API moderna de clipboard
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+        setCopiedAll(true);
+        onToast && onToast("Relatório do dia copiado.");
+        return;
+      }
+    } catch (e) { /* cai pro fallback abaixo */ }
+
+    // 2) fallback: campo de texto temporário + execCommand
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      const ok = document.execCommand("copy");
+      document.body.removeChild(ta);
+      if (ok) {
+        setCopiedAll(true);
+        onToast && onToast("Relatório do dia copiado.");
+        return;
+      }
+    } catch (e) { /* cai pro fallback manual */ }
+
+    // 3) último recurso: mostra o texto pra copiar manualmente
+    setShowTextModal(true);
+  };
+
   return (
     <div>
-      {/* date navigator — same ticket header style as Relatório */}
+      {/* shared date navigator — ticket header style */}
       <div style={{
         background: COLORS.steelDark, borderRadius: "10px 10px 0 0", padding: "12px 14px",
         display: "flex", justifyContent: "space-between", alignItems: "center",
@@ -1111,30 +1220,98 @@ function ProgramacaoDia({ records, onToast }) {
         <button onClick={() => shiftDate(1)} style={navBtnStyle}><ChevronRight size={16} color="#F4F2EC" /></button>
       </div>
       <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderTop: "none", borderRadius: "0 0 10px 10px", padding: 14 }}>
-        <input type="date" value={dateISO} onChange={(e) => setDateISO(e.target.value)} style={{ ...inputStyle(), marginBottom: 10 }} />
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
-          <span style={{ fontSize: 12.5, color: COLORS.inkSoft }}>
-            <strong style={{ color: COLORS.ink, fontFamily: "'IBM Plex Mono', monospace" }}>{dayRecords.length}</strong> visita(s) prevista(s)
-          </span>
-        </div>
+        <input type="date" value={dateISO} onChange={(e) => setDateISO(e.target.value)} style={inputStyle()} />
       </div>
 
       <button
-        onClick={copyText}
-        disabled={dayRecords.length === 0}
+        onClick={copyAll}
         style={{
-          width: "100%", marginTop: 10, background: copied ? COLORS.green : COLORS.steel, color: "#fff",
-          border: "none", borderRadius: 8, padding: "11px", fontSize: 13.5, fontWeight: 700,
-          cursor: dayRecords.length === 0 ? "not-allowed" : "pointer", opacity: dayRecords.length === 0 ? 0.5 : 1,
+          width: "100%", marginTop: 12, background: copiedAll ? COLORS.green : COLORS.steel, color: "#fff",
+          border: "none", borderRadius: 8, padding: "12px", fontSize: 13.5, fontWeight: 700, cursor: "pointer",
           display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
           fontFamily: "'Barlow Condensed', sans-serif", letterSpacing: "0.03em", textTransform: "uppercase",
         }}
       >
-        {copied ? <ClipboardCheck size={16} /> : <Copy size={16} />}
-        {copied ? "Copiado!" : "Copiar programação"}
+        {copiedAll ? <ClipboardCheck size={16} /> : <Copy size={16} />}
+        {copiedAll ? "Copiado!" : "Copiar relatório do dia"}
+      </button>
+      <button
+        onClick={() => setShowTextModal(true)}
+        style={{ ...ghostButtonStyle, marginTop: 8 }}
+      >
+        Ver texto pra copiar manualmente
       </button>
 
-      <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 14 }}>
+      {showTextModal && (
+        <TextShareModal text={buildFullText()} onClose={() => setShowTextModal(false)} />
+      )}
+
+      <SectionLabel>Operação do dia</SectionLabel>
+      <div style={{ marginTop: 8 }}>
+        <OperacaoDoDiaView stats={stats} diff={diff} />
+      </div>
+
+      <div style={{ marginTop: 22 }}>
+        <SectionLabel>Programação prevista</SectionLabel>
+      </div>
+      <div style={{ marginTop: 8 }}>
+        <ProgramacaoView dayRecords={dayRecords} byTecnico={byTecnico} />
+      </div>
+    </div>
+  );
+}
+
+function TextShareModal({ text, onClose }) {
+  const taRef = React.useRef(null);
+  useEffect(() => {
+    if (taRef.current) {
+      taRef.current.focus();
+      taRef.current.select();
+    }
+  }, []);
+  return (
+    <div style={{
+      position: "fixed", inset: 0, background: "rgba(20,26,34,0.55)", display: "flex",
+      alignItems: "flex-end", justifyContent: "center", zIndex: 60,
+    }} onClick={onClose}>
+      <div
+        style={{ background: COLORS.surface, borderRadius: "14px 14px 0 0", width: "100%", maxWidth: 520, padding: 16, maxHeight: "85vh", overflowY: "auto" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+          <div style={{ fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, fontSize: 15, textTransform: "uppercase" }}>
+            Texto do relatório
+          </div>
+          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }}>
+            <X size={18} color={COLORS.inkSoft} />
+          </button>
+        </div>
+        <div style={{ fontSize: 11.5, color: COLORS.inkSoft, marginBottom: 8 }}>
+          O texto já está selecionado — toque e segure e escolha "Copiar", ou use o menu do seu navegador.
+        </div>
+        <textarea
+          ref={taRef}
+          readOnly
+          value={text}
+          style={{
+            width: "100%", minHeight: 260, padding: 10, border: `1px solid ${COLORS.line}`, borderRadius: 8,
+            fontSize: 12.5, fontFamily: "'IBM Plex Mono', monospace", color: COLORS.ink, boxSizing: "border-box",
+            resize: "vertical",
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function ProgramacaoView({ dayRecords, byTecnico }) {
+  return (
+    <div>
+      <div style={{ fontSize: 12.5, color: COLORS.inkSoft, margin: "2px 0 10px" }}>
+        <strong style={{ color: COLORS.ink, fontFamily: "'IBM Plex Mono', monospace" }}>{dayRecords.length}</strong> visita(s) prevista(s)
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         {byTecnico.length === 0 && (
           <div style={{ textAlign: "center", padding: "30px 10px", color: COLORS.inkSoft, fontSize: 13 }}>
             Nenhuma visita com previsão para esta data.
@@ -1166,6 +1343,31 @@ function ProgramacaoDia({ records, onToast }) {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+/* Operação do Dia — replica a aba "Dashboard" (bloco "Operação do Dia") da planilha:
+   Entradas Hoje, Programadas Hoje, Concluídas Hoje, Designados Hoje — para uma data específica,
+   normalmente enviada no dia SEGUINTE para comparar planejado x realizado. */
+function OperacaoDoDiaView({ stats, diff }) {
+  return (
+    <div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <TicketMetric label="Entradas" value={stats.entradas} tone="steel" icon={FileStack} />
+        <TicketMetric label="Programadas" value={stats.programadas} tone="blueMid" icon={CalendarDays} />
+        <TicketMetric label="Concluídas" value={stats.concluidas} tone="green" icon={Check} />
+        <TicketMetric label="Designados" value={stats.designados} tone="amber" icon={CircleDot} />
+      </div>
+
+      <Card style={{ padding: 12, marginTop: 12, borderColor: diff > 0 ? COLORS.amber : COLORS.line, background: diff > 0 ? "#FBF3E4" : COLORS.surface }}>
+        <div style={{ fontSize: 12.5, color: diff > 0 ? "#5C3B10" : COLORS.inkSoft }}>
+          {diff === 0 && stats.programadas > 0 && "✓ Todas as visitas programadas foram concluídas."}
+          {diff === 0 && stats.programadas === 0 && "Nenhuma visita programada para este dia."}
+          {diff > 0 && `⚠ ${diff} visita(s) programada(s) não foram concluídas no dia.`}
+          {diff < 0 && `${Math.abs(diff)} visita(s) concluída(s) além do que estava programado.`}
+        </div>
+      </Card>
     </div>
   );
 }

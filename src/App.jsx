@@ -131,9 +131,73 @@ const WEEKDAY_ABBR = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
 const MONTH_NAMES = ["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
 
 /* ============================================================
-   STORAGE KEY
+   GOOGLE SHEETS API — leitura em tempo real via Apps Script
    ============================================================ */
-const STORAGE_KEY = "controle-assistencia:records";
+const SHEETS_API_URL = "https://script.google.com/macros/s/AKfycbxCCw7WTQIqim0yiY8-9RV90t1sTSm5vgkump7_kO9dxg60ot8f1XoD67dNlY54DLcs/exec";
+
+function sheetDateToISO(value) {
+  if (!value) return "";
+  const s = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!m) return "";
+  return `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
+}
+
+function sheetRowsToRecords(rows) {
+  if (!Array.isArray(rows)) return [];
+
+  const headerIndex = rows.findIndex((row) =>
+    Array.isArray(row) && row.some((cell) =>
+      String(cell || "").toUpperCase().includes("ASSISTÊNCIA")
+    )
+  );
+  if (headerIndex < 0) throw new Error('Cabeçalho da aba "Registros" não encontrado.');
+
+  const headers = rows[headerIndex].map((h) => String(h || "").trim().toUpperCase());
+  const col = (...names) => {
+    for (const name of names) {
+      const idx = headers.findIndex((h) => h === name || h.includes(name));
+      if (idx >= 0) return idx;
+    }
+    return -1;
+  };
+
+  const idx = {
+    numero: col("Nº ASSISTÊNCIA", "NO ASSISTÊNCIA", "ASSISTÊNCIA"),
+    entrada: col("ENTRADA"),
+    cliente: col("CLIENTE"),
+    endereco: col("ENDEREÇO", "ENDERECO"),
+    produto: col("PRODUTO"),
+    vendedor: col("VENDEDOR"),
+    tecnico: col("ASSISTENTE TÉCNICO", "ASSISTENTE TECNICO", "TÉCNICO", "TECNICO"),
+    previsaoVisita: col("PREVISÃO VISITA", "PREVISAO VISITA"),
+    dataVisita: col("DATA DA VISITA", "DATA VISITA"),
+    status: col("STATUS"),
+    servicos: col("SERVIÇOS", "SERVICOS", "SERVIÇO", "SERVICO"),
+    observacoes: col("OBSERVAÇÕES", "OBSERVACOES"),
+  };
+
+  const get = (row, i) => i >= 0 ? String(row[i] ?? "").trim() : "";
+  return rows.slice(headerIndex + 1)
+    .filter((row) => Array.isArray(row) && row.some((cell) => String(cell || "").trim() !== ""))
+    .map((row, i) => ({
+      id: `sheet_${headerIndex + 2 + i}`,
+      numero: get(row, idx.numero),
+      entrada: sheetDateToISO(get(row, idx.entrada)),
+      cliente: get(row, idx.cliente),
+      endereco: get(row, idx.endereco),
+      produto: get(row, idx.produto),
+      vendedor: get(row, idx.vendedor),
+      tecnico: get(row, idx.tecnico),
+      previsaoVisita: sheetDateToISO(get(row, idx.previsaoVisita)),
+      dataVisita: sheetDateToISO(get(row, idx.dataVisita)),
+      status: get(row, idx.status),
+      servicos: get(row, idx.servicos),
+      observacoes: get(row, idx.observacoes),
+    }))
+    .filter((r) => r.numero || r.cliente || r.endereco || r.entrada);
+}
 
 /* ============================================================
    SMALL UI PRIMITIVES
@@ -245,41 +309,41 @@ export default function App() {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState(null);
 
-  // ---- load from storage, seed if empty ----
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await window.storage.get(STORAGE_KEY, true);
-        if (!cancelled) {
-          if (res && res.value) {
-            setRecords(JSON.parse(res.value));
-          } else {
-            setRecords(SEED_DATA);
-            await window.storage.set(STORAGE_KEY, JSON.stringify(SEED_DATA), true);
-          }
-        }
-      } catch (e) {
-        if (!cancelled) setRecords(SEED_DATA);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
-
-  const persist = useCallback(async (next) => {
-    setRecords(next);
+  // ---- carrega registros diretamente do Google Sheets ----
+  const loadFromSheets = useCallback(async () => {
     setSaving(true);
     try {
-      await window.storage.set(STORAGE_KEY, JSON.stringify(next), true);
+      const res = await fetch(`${SHEETS_API_URL}?t=${Date.now()}`, { cache: "no-store" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const payload = await res.json();
+      if (!payload?.sucesso || !Array.isArray(payload.dados)) {
+        throw new Error(payload?.erro || "Resposta inválida da API.");
+      }
+      const next = sheetRowsToRecords(payload.dados);
+      setRecords(next);
+      return next;
     } catch (e) {
-      setToast("Não foi possível salvar. Tente novamente.");
+      console.error("Erro ao carregar Google Sheets:", e);
+      setRecords((current) => current ?? SEED_DATA);
+      setToast("Não foi possível ler o Google Sheets. Exibindo a base de segurança.");
+      return null;
     } finally {
       setSaving(false);
     }
   }, []);
 
+  useEffect(() => {
+    loadFromSheets();
+  }, [loadFromSheets]);
+
+  // Nesta etapa a planilha é a fonte oficial. Escrita será ligada no próximo passo.
+  const persist = useCallback(async (next) => {
+    setRecords(next);
+    setToast("Alteração apenas nesta tela por enquanto. A gravação no Google Sheets será ativada na próxima etapa.");
+  }, []);
+
   const addRecord = useCallback((rec) => {
-    const next = [{ ...rec, id: `r_${Date.now()}` }, ...(records || [])];
+    const next = [{ ...rec, id: `local_${Date.now()}` }, ...(records || [])];
     persist(next);
   }, [records, persist]);
 

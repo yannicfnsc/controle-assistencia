@@ -347,16 +347,64 @@ export default function App() {
     loadFromSheets();
   }, [loadFromSheets]);
 
-  // Nesta etapa a planilha é a fonte oficial. Escrita será ligada no próximo passo.
+  // A planilha é a fonte oficial. O cadastro de novos chamados grava direto no Apps Script.
   const persist = useCallback(async (next) => {
     setRecords(next);
-    setToast("Alteração apenas nesta tela por enquanto. A gravação no Google Sheets será ativada na próxima etapa.");
+    setToast("Edição rápida ainda não grava no Google Sheets. Vamos ligar essa etapa depois.");
   }, []);
 
-  const addRecord = useCallback((rec) => {
-    const next = [{ ...rec, id: `local_${Date.now()}` }, ...(records || [])];
-    persist(next);
-  }, [records, persist]);
+  const addRecord = useCallback(async (rec) => {
+    try {
+      setSaving(true);
+
+      const payload = {
+        numero: rec.numero || "",
+        entrada: rec.entrada || "",
+        cliente: rec.cliente || "",
+        endereco: rec.endereco || "",
+        produto: rec.produto || "",
+        vendedor: rec.vendedor || "",
+        tecnico: rec.tecnico || "",
+        previsao: rec.previsaoVisita || "",
+        dataVisita: rec.dataVisita || "",
+        servico: rec.servicos || "",
+        observacoes: rec.observacoes || "",
+      };
+
+      const res = await fetch(SHEETS_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify(payload),
+      });
+
+      let resposta = null;
+      try {
+        resposta = await res.json();
+      } catch (_) {
+        // Em alguns navegadores o Apps Script pode não expor o corpo da resposta,
+        // então confirmamos o cadastro recarregando a planilha logo abaixo.
+      }
+
+      if (resposta && resposta.sucesso === false) {
+        throw new Error(resposta.erro || "O Google Sheets recusou o cadastro.");
+      }
+
+      const atualizados = await loadFromSheets();
+      if (!atualizados) {
+        throw new Error("O cadastro foi enviado, mas não foi possível atualizar a lista.");
+      }
+
+      setToast("Chamado registrado no Google Sheets.");
+      return { sucesso: true };
+    } catch (e) {
+      console.error("Erro ao registrar chamado:", e);
+      const mensagem = e?.message || "Não foi possível registrar o chamado.";
+      setToast(`Erro ao registrar: ${mensagem}`);
+      return { sucesso: false, erro: mensagem };
+    } finally {
+      setSaving(false);
+    }
+  }, [loadFromSheets]);
 
   const updateRecord = useCallback((id, patch) => {
     const next = (records || []).map((r) => (r.id === id ? { ...r, ...patch } : r));
@@ -442,7 +490,7 @@ export default function App() {
       <div style={{ padding: 14, maxWidth: 720, margin: "0 auto" }}>
         {tab === "painel" && <Painel records={records} onGoRelatorio={() => setTab("relatorio")} onGoChamados={() => setTab("chamados")} />}
         {tab === "hoje" && <ProgramacaoDia records={records} onToast={setToast} />}
-        {tab === "novo" && <NovoChamado onAdd={(r) => { addRecord(r); setToast("Chamado registrado."); setTab("chamados"); }} />}
+        {tab === "novo" && <NovoChamado onAdd={async (r) => { const resultado = await addRecord(r); if (resultado?.sucesso) setTab("chamados"); return resultado; }} />}
         {tab === "chamados" && <Chamados records={records} onUpdate={updateRecord} />}
         {tab === "relatorio" && <Relatorio records={records} />}
       </div>
@@ -651,21 +699,38 @@ function NovoChamado({ onAdd }) {
     status: "⚪ Aberto", servicos: "", observacoes: "",
   });
   const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
-  const submit = () => {
+  const submit = async () => {
     if (!form.cliente.trim() && !form.endereco.trim()) {
       setError("Informe pelo menos o cliente ou o endereço.");
       return;
     }
+    if (!form.numero.trim()) {
+      setError("Informe o nº da assistência.");
+      return;
+    }
+
     setError("");
-    onAdd({ ...form });
-    setForm({
-      numero: "", entrada: todayISO, cliente: "", endereco: "", produto: "",
-      vendedor: "", tecnico: "", previsaoVisita: "", dataVisita: "",
-      status: "⚪ Aberto", servicos: "", observacoes: "",
-    });
+    setSubmitting(true);
+
+    try {
+      const resultado = await onAdd({ ...form });
+      if (!resultado?.sucesso) {
+        setError(resultado?.erro || "Não foi possível registrar o chamado.");
+        return;
+      }
+
+      setForm({
+        numero: "", entrada: todayISO, cliente: "", endereco: "", produto: "",
+        vendedor: "", tecnico: "", previsaoVisita: "", dataVisita: "",
+        status: "⚪ Aberto", servicos: "", observacoes: "",
+      });
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -742,14 +807,16 @@ function NovoChamado({ onAdd }) {
 
         <button
           onClick={submit}
+          disabled={submitting}
           style={{
             width: "100%", background: COLORS.steel, color: "#fff", border: "none", borderRadius: 8,
-            padding: "11px", fontSize: 13.5, fontWeight: 700, cursor: "pointer", display: "flex",
+            padding: "11px", fontSize: 13.5, fontWeight: 700, cursor: submitting ? "wait" : "pointer", display: "flex",
             alignItems: "center", justifyContent: "center", gap: 6, fontFamily: "'Barlow Condensed', sans-serif",
-            letterSpacing: "0.03em", textTransform: "uppercase",
+            letterSpacing: "0.03em", textTransform: "uppercase", opacity: submitting ? 0.72 : 1,
           }}
         >
-          <PlusCircle size={16} /> Registrar chamado
+          {submitting ? <Loader2 size={16} style={{ animation: "spin 1s linear infinite" }} /> : <PlusCircle size={16} />}
+          {submitting ? "Registrando..." : "Registrar chamado"}
         </button>
       </Card>
     </div>

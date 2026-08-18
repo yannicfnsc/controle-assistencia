@@ -147,11 +147,16 @@ function sheetDateToISO(value) {
 function sheetRowsToRecords(rows) {
   if (!Array.isArray(rows)) return [];
 
-  const headerIndex = rows.findIndex((row) =>
-    Array.isArray(row) && row.some((cell) =>
-      String(cell || "").toUpperCase().includes("ASSISTÊNCIA")
-    )
-  );
+  // A aba possui uma linha de título (ex.: "CONTROLE ASSISTÊNCIA TÉCNICA")
+  // antes do cabeçalho real. Por isso não basta procurar a palavra "ASSISTÊNCIA".
+  // Consideramos cabeçalho somente uma linha que contenha vários campos estruturais.
+  const headerIndex = rows.findIndex((row) => {
+    if (!Array.isArray(row)) return false;
+    const cells = row.map((cell) => String(cell || "").trim().toUpperCase());
+    const has = (name) => cells.some((cell) => cell === name || cell.includes(name));
+    return has("ENTRADA") && has("CLIENTE") && has("STATUS") &&
+      (has("ASSISTÊNCIA") || has("ASSISTENCIA"));
+  });
   if (headerIndex < 0) throw new Error('Cabeçalho da aba "Registros" não encontrado.');
 
   const headers = rows[headerIndex].map((h) => String(h || "").trim().toUpperCase());
@@ -196,7 +201,13 @@ function sheetRowsToRecords(rows) {
       servicos: get(row, idx.servicos),
       observacoes: get(row, idx.observacoes),
     }))
-    .filter((r) => r.numero || r.cliente || r.endereco || r.entrada);
+    .filter((r) => {
+      const numero = String(r.numero || "").trim().toUpperCase();
+      const cliente = String(r.cliente || "").trim().toUpperCase();
+      if (numero.includes("ASSISTÊNCIA") || numero.includes("ASSISTENCIA")) return false;
+      if (cliente === "CLIENTE") return false;
+      return r.numero || r.cliente || r.endereco || r.entrada;
+    });
 }
 
 /* ============================================================

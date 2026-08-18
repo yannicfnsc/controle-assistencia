@@ -406,10 +406,66 @@ export default function App() {
     }
   }, [loadFromSheets]);
 
-  const updateRecord = useCallback((id, patch) => {
-    const next = (records || []).map((r) => (r.id === id ? { ...r, ...patch } : r));
-    persist(next);
-  }, [records, persist]);
+  const updateRecord = useCallback(async (id, patch) => {
+    const atual = (records || []).find((r) => r.id === id);
+
+    if (!atual) {
+      const mensagem = "Chamado não encontrado no aplicativo.";
+      setToast(mensagem);
+      return { sucesso: false, erro: mensagem };
+    }
+
+    if (!atual.numero) {
+      const mensagem = "Este chamado não possui Nº de assistência e não pode ser localizado na planilha.";
+      setToast(mensagem);
+      return { sucesso: false, erro: mensagem };
+    }
+
+    try {
+      setSaving(true);
+
+      const payload = {
+        acao: "editar",
+        numero: atual.numero,
+        tecnico: patch.tecnico ?? atual.tecnico ?? "",
+        dataVisita: patch.dataVisita ?? atual.dataVisita ?? "",
+        observacoes: patch.observacoes ?? atual.observacoes ?? "",
+      };
+
+      const res = await fetch(SHEETS_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify(payload),
+      });
+
+      let resposta = null;
+      try {
+        resposta = await res.json();
+      } catch (_) {
+        // O Apps Script pode ocultar o corpo em alguns navegadores;
+        // a confirmação final é feita recarregando a planilha.
+      }
+
+      if (resposta && resposta.sucesso === false) {
+        throw new Error(resposta.erro || "O Google Sheets recusou a alteração.");
+      }
+
+      const atualizados = await loadFromSheets();
+      if (!atualizados) {
+        throw new Error("A alteração foi enviada, mas não foi possível atualizar a lista.");
+      }
+
+      setToast("Alterações salvas no Google Sheets.");
+      return { sucesso: true };
+    } catch (e) {
+      console.error("Erro ao editar chamado:", e);
+      const mensagem = e?.message || "Não foi possível salvar as alterações.";
+      setToast(`Erro ao salvar: ${mensagem}`);
+      return { sucesso: false, erro: mensagem };
+    } finally {
+      setSaving(false);
+    }
+  }, [records, loadFromSheets]);
 
   useEffect(() => {
     if (toast) {
@@ -917,7 +973,15 @@ function Chamados({ records, onUpdate }) {
       </div>
 
       {editing && (
-        <EditModal record={editing} onClose={() => setEditing(null)} onSave={(patch) => { onUpdate(editing.id, patch); setEditing(null); }} />
+        <EditModal
+          record={editing}
+          onClose={() => setEditing(null)}
+          onSave={async (patch) => {
+            const resultado = await onUpdate(editing.id, patch);
+            if (resultado?.sucesso) setEditing(null);
+            return resultado;
+          }}
+        />
       )}
     </div>
   );
@@ -928,6 +992,18 @@ function EditModal({ record, onClose, onSave }) {
   const [tecnico, setTecnico] = useState(record.tecnico || "");
   const [dataVisita, setDataVisita] = useState(record.dataVisita || "");
   const [observacoes, setObservacoes] = useState(record.observacoes || "");
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [saveError, setSaveError] = useState("");
+
+  const salvar = async () => {
+    setSaveError("");
+    setSavingEdit(true);
+    const resultado = await onSave({ tecnico, dataVisita, observacoes });
+    if (!resultado?.sucesso) {
+      setSaveError(resultado?.erro || "Não foi possível salvar as alterações.");
+      setSavingEdit(false);
+    }
+  };
 
   return (
     <div style={{
@@ -979,15 +1055,23 @@ function EditModal({ record, onClose, onSave }) {
           <textarea style={{ ...inputStyle(), minHeight: 60 }} value={observacoes} onChange={(e) => setObservacoes(e.target.value)} />
         </Field>
 
+        {saveError && (
+          <div style={{ fontSize: 12, color: COLORS.red, marginBottom: 10 }}>
+            {saveError}
+          </div>
+        )}
+
         <button
-          onClick={() => onSave({ status, tecnico, dataVisita, observacoes })}
+          onClick={salvar}
+          disabled={savingEdit}
           style={{
             width: "100%", background: COLORS.steel, color: "#fff", border: "none", borderRadius: 8,
-            padding: "11px", fontSize: 13.5, fontWeight: 700, cursor: "pointer", marginTop: 4,
+            padding: "11px", fontSize: 13.5, fontWeight: 700, cursor: savingEdit ? "default" : "pointer", marginTop: 4,
+            opacity: savingEdit ? 0.7 : 1,
             fontFamily: "'Barlow Condensed', sans-serif", letterSpacing: "0.03em", textTransform: "uppercase",
           }}
         >
-          Salvar alterações
+          {savingEdit ? "Salvando no Google Sheets..." : "Salvar alterações"}
         </button>
       </div>
     </div>

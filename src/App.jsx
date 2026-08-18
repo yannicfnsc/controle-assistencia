@@ -21,17 +21,17 @@ const COLORS = {
   surface: "#FFFFFF",
   ink: "#1B2430",
   inkSoft: "#5B6472",
-  steel: "#28425E",
-  steelDark: "#182B3D",
-  line: "#DAD4C4",
-  lineSoft: "#E9E5D9",
+  steel: "#C62828",
+  steelDark: "#8E1B1B",
+  line: "#E1B5B5",
+  lineSoft: "#F3DDDD",
   amber: "#C8842A",
   amberSoft: "#F3E2C4",
   green: "#2E7A52",
   greenSoft: "#DCEEE2",
   blueMid: "#5A76A0",
   blueMidSoft: "#E1E7F0",
-  steelSoft: "#DCE3EA",
+  steelSoft: "#F3D6D6",
   red: "#B24B44",
 };
 
@@ -428,7 +428,9 @@ export default function App() {
         acao: "editar",
         numero: atual.numero,
         tecnico: patch.tecnico ?? atual.tecnico ?? "",
+        previsaoVisita: patch.previsaoVisita ?? atual.previsaoVisita ?? "",
         dataVisita: patch.dataVisita ?? atual.dataVisita ?? "",
+        servicos: patch.servicos ?? atual.servicos ?? "",
         observacoes: patch.observacoes ?? atual.observacoes ?? "",
       };
 
@@ -988,9 +990,10 @@ function Chamados({ records, onUpdate }) {
 }
 
 function EditModal({ record, onClose, onSave }) {
-  const [status, setStatus] = useState(record.status || "⚪ Aberto");
   const [tecnico, setTecnico] = useState(record.tecnico || "");
+  const [previsaoVisita, setPrevisaoVisita] = useState(record.previsaoVisita || "");
   const [dataVisita, setDataVisita] = useState(record.dataVisita || "");
+  const [servicos, setServicos] = useState(record.servicos || "");
   const [observacoes, setObservacoes] = useState(record.observacoes || "");
   const [savingEdit, setSavingEdit] = useState(false);
   const [saveError, setSaveError] = useState("");
@@ -998,7 +1001,7 @@ function EditModal({ record, onClose, onSave }) {
   const salvar = async () => {
     setSaveError("");
     setSavingEdit(true);
-    const resultado = await onSave({ tecnico, dataVisita, observacoes });
+    const resultado = await onSave({ tecnico, previsaoVisita, dataVisita, servicos, observacoes });
     if (!resultado?.sucesso) {
       setSaveError(resultado?.erro || "Não foi possível salvar as alterações.");
       setSavingEdit(false);
@@ -1026,24 +1029,23 @@ function EditModal({ record, onClose, onSave }) {
           </button>
         </div>
 
-        <Field label="Status">
-          <select style={inputStyle()} value={status} onChange={(e) => setStatus(e.target.value)}>
-            {STATUS_OPTS.map((s) => <option key={s.key} value={s.value}>{STATUS_META[s.key].label}</option>)}
-          </select>
+        <Field label="Status atual">
+          <div style={{ ...inputStyle(), background: COLORS.lineSoft, fontWeight: 600 }}>
+            {STATUS_META[normalizeStatus(record.status)]?.label || record.status || "Aberto"}
+          </div>
         </Field>
         <Field label="Assistente técnico">
           <input style={inputStyle()} value={tecnico} onChange={(e) => setTecnico(e.target.value)} />
+        </Field>
+        <Field label="Previsão de visita">
+          <input type="date" style={inputStyle()} value={previsaoVisita} onChange={(e) => setPrevisaoVisita(e.target.value)} />
         </Field>
         <Field label="Data da visita">
           <input
             type="date"
             style={inputStyle()}
             value={dataVisita}
-            onChange={(e) => {
-              const v = e.target.value;
-              setDataVisita(v);
-              if (v) setStatus("✅ Concluído");
-            }}
+            onChange={(e) => setDataVisita(e.target.value)}
           />
         </Field>
         {getSLA(record.entrada, dataVisita) && (
@@ -1051,6 +1053,12 @@ function EditModal({ record, onClose, onSave }) {
             <SLABadge entrada={record.entrada} dataVisita={dataVisita} />
           </div>
         )}
+        <Field label="Serviço">
+          <select style={inputStyle()} value={servicos} onChange={(e) => setServicos(e.target.value)}>
+            <option value="">— selecionar —</option>
+            {SERVICO_OPTS.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </Field>
         <Field label="Observações">
           <textarea style={{ ...inputStyle(), minHeight: 60 }} value={observacoes} onChange={(e) => setObservacoes(e.target.value)} />
         </Field>
@@ -1338,7 +1346,7 @@ function ProgramacaoDia({ records, onToast }) {
     const entradas = records.filter((r) => r.entrada === dateISO);
     const designados = records.filter((r) => r.previsaoVisita === dateISO && r.servicos === "LEVANTAMENTO DESIGNADO");
     const programadas = records.filter((r) => r.previsaoVisita === dateISO).length - designados.length;
-    const concluidas = records.filter((r) => r.dataVisita === dateISO && normalizeStatus(r.status) === "concluido");
+    const concluidas = records.filter((r) => r.dataVisita === dateISO);
     return {
       entradas: entradas.length,
       programadas: Math.max(programadas, 0),

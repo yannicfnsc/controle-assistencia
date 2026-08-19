@@ -58,6 +58,24 @@ function normalizeStatus(raw) {
   return "aberto";
 }
 
+// Status efetivo exibido no app.
+// Um chamado vira Atrasado automaticamente quando a previsão já passou,
+// ainda não houve visita e ele não é um levantamento designado.
+function effectiveStatus(record) {
+  if (!record) return "aberto";
+  const normalized = normalizeStatus(record.status);
+  const isDesignado = normalized === "designado" ||
+    String(record.servicos || "").toUpperCase().includes("DESIGNADO");
+
+  if (isDesignado) return "designado";
+  if (record.dataVisita) return "concluido";
+
+  const todayISO = toISO(new Date());
+  if (record.previsaoVisita && record.previsaoVisita < todayISO) return "atrasado";
+
+  return normalized;
+}
+
 /* ============================================================
    SLA — prazo de atendimento (dias entre Entrada e Data da Visita)
    ============================================================ */
@@ -576,6 +594,8 @@ export default function App() {
       const payload = {
         acao: "editar",
         numero: atual.numero,
+        produto: patch.produto ?? atual.produto ?? "",
+        vendedor: patch.vendedor ?? atual.vendedor ?? "",
         tecnico: patch.tecnico ?? atual.tecnico ?? "",
         previsaoVisita: patch.previsaoVisita ?? atual.previsaoVisita ?? "",
         dataVisita: patch.dataVisita ?? atual.dataVisita ?? "",
@@ -722,7 +742,7 @@ function Painel({ records, onGoRelatorio, onGoChamados }) {
   const now = new Date();
   const wStart = startOfWeek(now), wEnd = endOfWeek(now);
 
-  const withStatus = useMemo(() => records.map((r) => ({ ...r, _status: normalizeStatus(r.status) })), [records]);
+  const withStatus = useMemo(() => records.map((r) => ({ ...r, _status: effectiveStatus(r) })), [records]);
 
   const thisWeek = useMemo(
     () => withStatus.filter((r) => { const d = parseISO(r.entrada); return d && d >= wStart && d <= wEnd; }),
@@ -1192,6 +1212,8 @@ function Chamados({ records, onUpdate }) {
 }
 
 function EditModal({ record, onClose, onSave }) {
+  const [produto, setProduto] = useState(record.produto || "");
+  const [vendedor, setVendedor] = useState(record.vendedor || "");
   const [tecnico, setTecnico] = useState(record.tecnico || "");
   const [previsaoVisita, setPrevisaoVisita] = useState(record.previsaoVisita || "");
   const [dataVisita, setDataVisita] = useState(record.dataVisita || "");
@@ -1203,7 +1225,7 @@ function EditModal({ record, onClose, onSave }) {
   const salvar = async () => {
     setSaveError("");
     setSavingEdit(true);
-    const resultado = await onSave({ tecnico, previsaoVisita, dataVisita, servicos, observacoes });
+    const resultado = await onSave({ produto, vendedor, tecnico, previsaoVisita, dataVisita, servicos, observacoes });
     if (!resultado?.sucesso) {
       setSaveError(resultado?.erro || "Não foi possível salvar as alterações.");
       setSavingEdit(false);
@@ -1233,11 +1255,26 @@ function EditModal({ record, onClose, onSave }) {
 
         <Field label="Status atual">
           <div style={{ ...inputStyle(), background: COLORS.lineSoft, fontWeight: 600 }}>
-            {STATUS_META[normalizeStatus(record.status)]?.label || record.status || "Aberto"}
+            {STATUS_META[effectiveStatus({ ...record, produto, vendedor, tecnico, previsaoVisita, dataVisita, servicos })]?.label || record.status || "Aberto"}
           </div>
         </Field>
+        <Field label="Produto">
+          <select style={inputStyle()} value={produto} onChange={(e) => setProduto(e.target.value)}>
+            <option value="">— selecionar —</option>
+            {PRODUTO_OPTS.map((p) => <option key={p} value={p}>{p}</option>)}
+          </select>
+        </Field>
+        <Field label="Vendedor">
+          <select style={inputStyle()} value={vendedor} onChange={(e) => setVendedor(e.target.value)}>
+            <option value="">— selecionar —</option>
+            {VENDEDOR_OPTS.map((v) => <option key={v} value={v}>{v}</option>)}
+          </select>
+        </Field>
         <Field label="Assistente técnico">
-          <input style={inputStyle()} value={tecnico} onChange={(e) => setTecnico(e.target.value)} />
+          <select style={inputStyle()} value={tecnico} onChange={(e) => setTecnico(e.target.value)}>
+            <option value="">— selecionar —</option>
+            {TECNICO_OPTS.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
         </Field>
         <Field label="Previsão de visita">
           <input type="date" style={inputStyle()} value={previsaoVisita} onChange={(e) => setPrevisaoVisita(e.target.value)} />

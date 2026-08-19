@@ -423,7 +423,7 @@ function Card({ children, style, ...rest }) {
    TICKET-STYLE METRIC CARD (signature element)
    ============================================================ */
 function TicketMetric({ label, value, tone, icon: Icon, sub }) {
-  const meta = { steel: COLORS.steel, amber: COLORS.amber, green: COLORS.green, blueMid: COLORS.blueMid }[tone] || COLORS.steel;
+  const meta = { steel: COLORS.steel, amber: COLORS.amber, green: COLORS.green, blueMid: COLORS.blueMid, red: COLORS.red }[tone] || COLORS.steel;
   return (
     <div
       style={{
@@ -1620,19 +1620,6 @@ function ProgramacaoDia({ records, onToast }) {
         diff === 0
           ? (stats.programadas > 0 ? "Todas as visitas programadas foram concluídas." : "Nenhuma visita programada para este dia.")
           : diff > 0
-      <div style={{
-        marginTop: 10, border: `1px solid ${COLORS.redLine || COLORS.red}`,
-        borderTop: `4px solid ${COLORS.red}`, borderRadius: 10,
-        background: COLORS.surface, padding: "12px 14px"
-      }}>
-        <div style={{ fontSize: 10, fontWeight: 800, color: COLORS.red, textTransform: "uppercase", letterSpacing: ".06em" }}>
-          Pendentes do dia
-        </div>
-        <div style={{ fontSize: 28, fontWeight: 800, color: COLORS.ink, marginTop: 3 }}>
-          {stats.pendentes}
-        </div>
-      </div>
-
             ? `${diff} visita(s) programada(s) ainda não concluída(s).`
             : `${Math.abs(diff)} conclusão(ões) acima do total programado.`,
       ],
@@ -1954,6 +1941,7 @@ function OperacaoDoDiaView({ stats, diff }) {
         <TicketMetric label="Programadas" value={stats.programadas} tone="blueMid" icon={CalendarDays} />
         <TicketMetric label="Concluídas" value={stats.concluidas} tone="green" icon={Check} />
         <TicketMetric label="Designados" value={stats.designados} tone="amber" icon={CircleDot} />
+        <TicketMetric label="Pendentes" value={stats.pendentes} tone="red" icon={AlertTriangle} />
       </div>
 
       <Card style={{ padding: 12, marginTop: 12, borderColor: diff > 0 ? COLORS.amber : COLORS.line, background: diff > 0 ? "#FBF3E4" : COLORS.surface }}>

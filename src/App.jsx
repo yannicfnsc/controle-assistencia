@@ -1408,62 +1408,62 @@ function Relatorio({ records }) {
     }
 
     const titulo = mode === "semanal" ? "Relatório Semanal" : "Relatório Mensal";
-    const maxTrend = Math.max(
-      1,
-      ...trend.map((x) =>
-        Number(x["Concluídos"] || 0) +
-        Number(x["Designados"] || 0) +
-        Number(x["Abertos/Agend."] || 0)
-      )
-    );
+    const totalStatus = Math.max(1, statusDonut.reduce((sum, item) => sum + Number(item.value || 0), 0));
     const maxServico = Math.max(1, ...servicosBreakdown.map(([, qtd]) => Number(qtd || 0)));
+    const emittedAt = new Date().toLocaleString("pt-BR");
 
-    const statusRows = [
-      ["Concluídos", counts.concluido, COLORS.green],
-      ["Designados", counts.designado, COLORS.blueMid],
-      ["Agendados", counts.agendado, COLORS.amber],
-      ["Abertos", counts.aberto, COLORS.red],
-    ];
-
-    const htmlBars = (rows, maxValue) => rows.map(([label, value, color]) => `
-      <div class="bar-row">
-        <div class="bar-label">${escapeReportHtml(label)}</div>
-        <div class="bar-track">
-          <div class="bar-fill" style="width:${Math.max(2, (Number(value || 0) / Math.max(1, maxValue)) * 100)}%;background:${color}"></div>
-        </div>
-        <div class="bar-value">${escapeReportHtml(value)}</div>
-      </div>
-    `).join("");
-
-    const trendHtml = trend.map((x) => {
-      const total =
-        Number(x["Concluídos"] || 0) +
-        Number(x["Designados"] || 0) +
-        Number(x["Abertos/Agend."] || 0);
-      const c = Number(x["Concluídos"] || 0);
-      const d = Number(x["Designados"] || 0);
-      const a = Number(x["Abertos/Agend."] || 0);
-      return `
-        <div class="trend-item">
-          <div class="trend-bars">
-            <div style="height:${Math.max(2, (c / maxTrend) * 118)}px;background:${COLORS.green}" title="Concluídos: ${c}"></div>
-            <div style="height:${Math.max(2, (d / maxTrend) * 118)}px;background:${COLORS.blueMid}" title="Designados: ${d}"></div>
-            <div style="height:${Math.max(2, (a / maxTrend) * 118)}px;background:${COLORS.amber}" title="Abertos/Agendados: ${a}"></div>
-          </div>
-          <div class="trend-label">${escapeReportHtml(x.label)}</div>
-          <div class="trend-total">${total}</div>
-        </div>
-      `;
+    // Donut igual ao visual da tela, feito em SVG para imprimir nítido no PDF.
+    const radius = 42;
+    const circumference = 2 * Math.PI * radius;
+    let donutOffset = 0;
+    const donutSegments = statusDonut.map((item) => {
+      const pct = Number(item.value || 0) / totalStatus;
+      const dash = pct * circumference;
+      const segment = `<circle cx="58" cy="58" r="${radius}" fill="none" stroke="${item.color}" stroke-width="16" stroke-dasharray="${dash} ${circumference - dash}" stroke-dashoffset="${-donutOffset}" transform="rotate(-90 58 58)" />`;
+      donutOffset += dash;
+      return segment;
     }).join("");
 
-    const slaRows = SLA_TIERS.map((tier) => [
-      tier.label,
-      slaSummary.counts[tier.key] || 0,
-      tier.color
-    ]);
-    const maxSla = Math.max(1, ...slaRows.map(([, n]) => Number(n || 0)));
+    const donutLegend = statusDonut.map((item) => {
+      const pct = Math.round((Number(item.value || 0) / totalStatus) * 100);
+      return `<div class="donut-legend-row"><span class="dot" style="background:${item.color}"></span><span>${escapeReportHtml(item.name)}</span><strong>${item.value} (${pct}%)</strong></div>`;
+    }).join("");
 
-    const servicoRows = servicosBreakdown.map(([nome, qtd]) => [nome, qtd, COLORS.steel]);
+    // Linha de tendência igual ao gráfico da tela.
+    const chartW = 620, chartH = 205, padL = 34, padR = 14, padT = 12, padB = 30;
+    const plotW = chartW - padL - padR, plotH = chartH - padT - padB;
+    const maxTrend = Math.max(1, ...trend.flatMap((x) => [
+      Number(x["Concluídos"] || 0), Number(x["Designados"] || 0), Number(x["Abertos/Agend."] || 0)
+    ]));
+    const niceMax = Math.max(10, Math.ceil(maxTrend / 10) * 10);
+    const xAt = (i) => padL + (trend.length <= 1 ? plotW / 2 : (i * plotW) / (trend.length - 1));
+    const yAt = (v) => padT + plotH - (Number(v || 0) / niceMax) * plotH;
+    const pointsFor = (key) => trend.map((x, i) => `${xAt(i)},${yAt(x[key])}`).join(" ");
+    const gridLines = [0, .25, .5, .75, 1].map((f) => {
+      const y = padT + plotH - f * plotH;
+      const value = Math.round(niceMax * f);
+      return `<line x1="${padL}" y1="${y}" x2="${chartW-padR}" y2="${y}" stroke="#E8DADA" stroke-dasharray="3 3"/><text x="${padL-7}" y="${y+3}" text-anchor="end" font-size="8" fill="#777">${value}</text>`;
+    }).join("");
+    const xLabels = trend.map((x, i) => `<text x="${xAt(i)}" y="${chartH-8}" text-anchor="middle" font-size="8" fill="#666">${escapeReportHtml(x.label)}</text>`).join("");
+    const pointDots = (key, color) => trend.map((x, i) => `<circle cx="${xAt(i)}" cy="${yAt(x[key])}" r="2.4" fill="#fff" stroke="${color}" stroke-width="1.6"/>`).join("");
+
+    const slaTotal = Math.max(1, slaSummary.total);
+    const slaSegments = SLA_TIERS.map((tier) => {
+      const value = slaSummary.counts[tier.key] || 0;
+      return value ? `<span style="width:${(value / slaTotal) * 100}%;background:${tier.color}"></span>` : "";
+    }).join("");
+    const slaLegend = SLA_TIERS.map((tier) => {
+      const value = slaSummary.counts[tier.key] || 0;
+      return `<div class="sla-item"><span class="dot" style="background:${tier.color}"></span><span>${escapeReportHtml(tier.label)}</span><strong>${value}</strong></div>`;
+    }).join("");
+
+    const serviceRows = servicosBreakdown.map(([nome, qtd]) => `
+      <div class="service-row">
+        <div class="service-name">${escapeReportHtml(nome)}</div>
+        <div class="service-track"><div class="service-fill" style="width:${(Number(qtd || 0) / maxServico) * 100}%"></div></div>
+        <strong>${qtd}</strong>
+      </div>
+    `).join("");
 
     popup.document.write(`
       <!doctype html>
@@ -1472,87 +1472,83 @@ function Relatorio({ records }) {
           <meta charset="utf-8" />
           <title>${escapeReportHtml(titulo)}</title>
           <style>
-            @page { size: A4 landscape; margin: 11mm; }
+            @page { size: A4 portrait; margin: 8mm; }
             * { box-sizing: border-box; }
-            body { font-family: Arial, sans-serif; color:#222; margin:0; font-size:11px; }
-            .top { border-bottom:4px solid #C62828; padding-bottom:9px; margin-bottom:12px; }
-            h1 { margin:0 0 4px; color:#8E1B1B; font-size:21px; }
-            .subtitle { color:#666; font-size:12px; }
-            .metrics { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin:12px 0 16px; }
-            .metric { border:1px solid #E1B5B5; border-top:4px solid #C62828; border-radius:7px; padding:9px 10px; }
-            .metric-label { font-size:9px; color:#666; font-weight:bold; text-transform:uppercase; }
-            .metric-value { font-size:24px; font-weight:800; margin-top:4px; }
-            .grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
-            .panel { border:1px solid #ead0d0; border-radius:8px; padding:11px; break-inside:avoid; }
-            .panel h2 { font-size:12px; color:#8E1B1B; text-transform:uppercase; margin:0 0 10px; letter-spacing:.04em; }
-            .bar-row { display:grid; grid-template-columns:120px 1fr 34px; gap:8px; align-items:center; margin:7px 0; }
-            .bar-label { font-size:10px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-            .bar-track { height:12px; background:#F4ECEC; border-radius:6px; overflow:hidden; }
-            .bar-fill { height:100%; border-radius:6px; }
-            .bar-value { font-weight:700; text-align:right; }
-            .trend { display:flex; gap:10px; align-items:flex-end; height:160px; padding:8px 4px 0; border-bottom:1px solid #ddd; }
-            .trend-item { flex:1; min-width:0; text-align:center; }
-            .trend-bars { height:122px; display:flex; gap:2px; align-items:flex-end; justify-content:center; }
-            .trend-bars div { width:18%; min-width:7px; border-radius:3px 3px 0 0; }
-            .trend-label { font-size:9px; color:#666; margin-top:5px; }
-            .trend-total { font-size:9px; font-weight:bold; }
-            .legend { display:flex; gap:14px; margin-top:8px; font-size:9px; color:#666; }
-            .legend span::before { content:""; width:8px; height:8px; display:inline-block; border-radius:2px; margin-right:4px; vertical-align:middle; }
-            .l1::before { background:${COLORS.green}; }
-            .l2::before { background:${COLORS.blueMid}; }
-            .l3::before { background:${COLORS.amber}; }
-            .footer { margin-top:12px; font-size:9px; color:#888; text-align:right; }
-            @media print { body { -webkit-print-color-adjust:exact; print-color-adjust:exact; } }
+            body { font-family: Arial, sans-serif; color:#182430; margin:0; font-size:10px; background:#fff; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+            .page { max-width: 760px; margin: 0 auto; }
+            .top { border:1px solid #E7AAAA; border-top:8px solid #8E1B1B; border-radius:8px; overflow:hidden; margin-bottom:9px; }
+            .top-title { background:#8E1B1B; color:#fff; text-align:center; padding:7px 10px 8px; }
+            .top-title h1 { margin:0; font-size:17px; text-transform:uppercase; letter-spacing:.04em; }
+            .top-title div { margin-top:2px; font-size:10px; opacity:.92; }
+            .metrics { display:grid; grid-template-columns:1fr 1fr; gap:7px; padding:9px; background:#FBF9F5; }
+            .metric { background:#fff; border:1px solid #E7AAAA; border-top:4px solid #C62828; border-radius:7px; padding:7px 9px; min-height:52px; }
+            .metric:nth-child(2) { border-top-color:${COLORS.green}; }
+            .metric:nth-child(3) { border-top-color:${COLORS.blueMid}; }
+            .metric:nth-child(4) { border-top-color:${COLORS.amber}; }
+            .metric-label { font-size:8px; color:#526071; font-weight:800; text-transform:uppercase; letter-spacing:.05em; }
+            .metric-value { font-size:22px; line-height:1; font-weight:800; margin-top:6px; color:#101C29; }
+            .section-title { margin:8px 0 5px; padding-bottom:4px; border-bottom:1px solid #E7AAAA; color:#8E1B1B; font-size:9px; font-weight:800; text-transform:uppercase; letter-spacing:.05em; }
+            .panel { border:1px solid #E7AAAA; border-radius:7px; padding:8px 10px; break-inside:avoid; background:#fff; }
+            .composition { display:grid; grid-template-columns:150px 1fr; align-items:center; gap:12px; min-height:125px; }
+            .donut-wrap { display:flex; justify-content:center; }
+            .donut-legend-row { display:grid; grid-template-columns:12px 1fr auto; gap:6px; align-items:center; margin:6px 0; font-size:9px; }
+            .dot { width:7px; height:7px; border-radius:50%; display:inline-block; }
+            .trend-svg { width:100%; height:auto; display:block; }
+            .trend-legend { display:flex; gap:16px; justify-content:center; margin-top:2px; font-size:8px; color:#666; }
+            .trend-legend span::before { content:""; width:14px; height:2px; display:inline-block; margin-right:4px; vertical-align:middle; }
+            .trend-green::before { background:${COLORS.green}; } .trend-blue::before { background:${COLORS.blueMid}; } .trend-red::before { background:${COLORS.steel}; }
+            .sla-bar { height:12px; border-radius:7px; overflow:hidden; display:flex; background:#F4ECEC; margin:2px 0 8px; }
+            .sla-bar span { height:100%; display:block; }
+            .sla-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:6px 12px; }
+            .sla-item { display:grid; grid-template-columns:10px 1fr auto; gap:4px; align-items:center; font-size:8px; }
+            .service-row { display:grid; grid-template-columns:125px 1fr 24px; gap:7px; align-items:center; margin:5px 0; }
+            .service-name { font-size:8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+            .service-track { height:7px; border-radius:5px; overflow:hidden; background:#F3DDDD; }
+            .service-fill { height:100%; background:#C62828; border-radius:5px; }
+            .service-row strong { text-align:right; font-size:8px; color:#8E1B1B; }
+            .footer { margin-top:8px; border-top:1px solid #E7AAAA; padding-top:5px; font-size:8px; color:#777; text-align:right; }
+            @media print { body { background:#fff; } }
           </style>
         </head>
         <body>
-          <div class="top">
-            <h1>${escapeReportHtml(titulo)}</h1>
-            <div class="subtitle">${escapeReportHtml(periodLabel)}</div>
-          </div>
-
-          <div class="metrics">
-            <div class="metric"><div class="metric-label">Pedidos</div><div class="metric-value">${periodRecords.length}</div></div>
-            <div class="metric"><div class="metric-label">Concluídos</div><div class="metric-value">${counts.concluido}</div></div>
-            <div class="metric"><div class="metric-label">Designados</div><div class="metric-value">${counts.designado}</div></div>
-            <div class="metric"><div class="metric-label">Abertos/Pendentes</div><div class="metric-value">${abertosPendentes}</div></div>
-          </div>
-
-          <div class="grid">
-            <div class="panel">
-              <h2>Composição do período</h2>
-              ${htmlBars(statusRows, Math.max(1, ...statusRows.map(([,v]) => Number(v || 0))))}
-            </div>
-
-            <div class="panel">
-              <h2>Prazo de atendimento (SLA)</h2>
-              ${slaSummary.total
-                ? htmlBars(slaRows, maxSla)
-                : '<div style="color:#777;padding:12px 0">Nenhum chamado com data de visita disponível neste período.</div>'}
-            </div>
-
-            <div class="panel">
-              <h2>Últimos 8 ${mode === "semanal" ? "semanas" : "meses"}</h2>
-              <div class="trend">${trendHtml}</div>
-              <div class="legend">
-                <span class="l1">Concluídos</span>
-                <span class="l2">Designados</span>
-                <span class="l3">Abertos/Agendados</span>
+          <div class="page">
+            <div class="top">
+              <div class="top-title"><h1>${escapeReportHtml(titulo)}</h1><div>${escapeReportHtml(periodLabel)}</div></div>
+              <div class="metrics">
+                <div class="metric"><div class="metric-label">Pedidos no período</div><div class="metric-value">${periodRecords.length}</div></div>
+                <div class="metric"><div class="metric-label">Concluídos</div><div class="metric-value">${counts.concluido}</div></div>
+                <div class="metric"><div class="metric-label">Designados</div><div class="metric-value">${counts.designado}</div></div>
+                <div class="metric"><div class="metric-label">Abertos ou pendentes</div><div class="metric-value">${abertosPendentes}</div></div>
               </div>
             </div>
 
-            <div class="panel">
-              <h2>Serviços mais solicitados</h2>
-              ${servicoRows.length
-                ? htmlBars(servicoRows, maxServico)
-                : '<div style="color:#777;padding:12px 0">Sem dados de serviços.</div>'}
+            <div class="section-title">Composição do período</div>
+            <div class="panel composition">
+              <div class="donut-wrap"><svg width="116" height="116" viewBox="0 0 116 116"><circle cx="58" cy="58" r="42" fill="none" stroke="#F3DDDD" stroke-width="16"/>${donutSegments}<circle cx="58" cy="58" r="31" fill="#fff"/></svg></div>
+              <div>${donutLegend || '<span style="color:#777">Sem dados no período.</span>'}</div>
             </div>
-          </div>
 
-          <div class="footer">Controle de Assistência Técnica • gerado em ${new Date().toLocaleString("pt-BR")}</div>
-          <script>
-            window.onload = () => setTimeout(() => { window.focus(); window.print(); }, 250);
-          <\/script>
+            <div class="section-title">Últimos 8 ${mode === "semanal" ? "semanas" : "meses"}</div>
+            <div class="panel">
+              <svg class="trend-svg" viewBox="0 0 ${chartW} ${chartH}">${gridLines}${xLabels}
+                <polyline points="${pointsFor("Abertos/Agend.")}" fill="none" stroke="${COLORS.steel}" stroke-width="2"/>${pointDots("Abertos/Agend.", COLORS.steel)}
+                <polyline points="${pointsFor("Concluídos")}" fill="none" stroke="${COLORS.green}" stroke-width="2.2"/>${pointDots("Concluídos", COLORS.green)}
+                <polyline points="${pointsFor("Designados")}" fill="none" stroke="${COLORS.blueMid}" stroke-width="2"/>${pointDots("Designados", COLORS.blueMid)}
+              </svg>
+              <div class="trend-legend"><span class="trend-red">Abertos/Agend.</span><span class="trend-green">Concluídos</span><span class="trend-blue">Designados</span></div>
+            </div>
+
+            <div class="section-title">Prazo de atendimento (SLA) no período</div>
+            <div class="panel">
+              ${slaSummary.total ? `<div class="sla-bar">${slaSegments}</div><div class="sla-grid">${slaLegend}</div>` : '<div style="color:#777;padding:7px 0">Nenhum chamado com data de visita disponível neste período.</div>'}
+            </div>
+
+            <div class="section-title">Serviços mais solicitados</div>
+            <div class="panel">${serviceRows || '<div style="color:#777;padding:7px 0">Sem dados de serviços.</div>'}</div>
+
+            <div class="footer">Controle de Assistência Técnica • gerado em ${escapeReportHtml(emittedAt)}</div>
+          </div>
+          <script>window.onload = () => setTimeout(() => { window.focus(); window.print(); }, 300);<\/script>
         </body>
       </html>
     `);

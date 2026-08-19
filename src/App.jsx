@@ -1416,11 +1416,28 @@ function Relatorio({ records }) {
     const radius = 42;
     const circumference = 2 * Math.PI * radius;
     let donutOffset = 0;
+    let donutAngle = -90;
+    const donutLabels = [];
     const donutSegments = statusDonut.map((item) => {
-      const pct = Number(item.value || 0) / totalStatus;
+      const value = Number(item.value || 0);
+      const pct = value / totalStatus;
       const dash = pct * circumference;
       const segment = `<circle cx="58" cy="58" r="${radius}" fill="none" stroke="${item.color}" stroke-width="16" stroke-dasharray="${dash} ${circumference - dash}" stroke-dashoffset="${-donutOffset}" transform="rotate(-90 58 58)" />`;
+
+      // Mostra o número dentro da fatia quando ela tiver espaço suficiente.
+      if (value > 0 && pct >= 0.07) {
+        const midAngle = donutAngle + (pct * 360) / 2;
+        const labelRadius = 42;
+        const rad = (midAngle * Math.PI) / 180;
+        const lx = 58 + Math.cos(rad) * labelRadius;
+        const ly = 58 + Math.sin(rad) * labelRadius;
+        donutLabels.push(
+          `<text x="${lx}" y="${ly}" text-anchor="middle" dominant-baseline="middle" font-size="8" font-weight="800" fill="#fff" stroke="rgba(0,0,0,.22)" stroke-width=".7" paint-order="stroke">${value}</text>`
+        );
+      }
+
       donutOffset += dash;
+      donutAngle += pct * 360;
       return segment;
     }).join("");
 
@@ -1446,6 +1463,11 @@ function Relatorio({ records }) {
     }).join("");
     const xLabels = trend.map((x, i) => `<text x="${xAt(i)}" y="${chartH-8}" text-anchor="middle" font-size="8" fill="#666">${escapeReportHtml(x.label)}</text>`).join("");
     const pointDots = (key, color) => trend.map((x, i) => `<circle cx="${xAt(i)}" cy="${yAt(x[key])}" r="2.4" fill="#fff" stroke="${color}" stroke-width="1.6"/>`).join("");
+    const pointLabels = (key, color, offsetY = -7) => trend.map((x, i) => {
+      const value = Number(x[key] || 0);
+      if (!value) return "";
+      return `<text x="${xAt(i)}" y="${Math.max(9, yAt(value) + offsetY)}" text-anchor="middle" font-size="8" font-weight="800" fill="${color}" stroke="#fff" stroke-width="2.4" paint-order="stroke">${value}</text>`;
+    }).join("");
 
     const slaTotal = Math.max(1, slaSummary.total);
     const slaSegments = SLA_TIERS.map((tier) => {
@@ -1524,16 +1546,16 @@ function Relatorio({ records }) {
 
             <div class="section-title">Composição do período</div>
             <div class="panel composition">
-              <div class="donut-wrap"><svg width="116" height="116" viewBox="0 0 116 116"><circle cx="58" cy="58" r="42" fill="none" stroke="#F3DDDD" stroke-width="16"/>${donutSegments}<circle cx="58" cy="58" r="31" fill="#fff"/></svg></div>
+              <div class="donut-wrap"><svg width="116" height="116" viewBox="0 0 116 116"><circle cx="58" cy="58" r="42" fill="none" stroke="#F3DDDD" stroke-width="16"/>${donutSegments}${donutLabels.join("")}<circle cx="58" cy="58" r="31" fill="#fff"/></svg></div>
               <div>${donutLegend || '<span style="color:#777">Sem dados no período.</span>'}</div>
             </div>
 
             <div class="section-title">Últimos 8 ${mode === "semanal" ? "semanas" : "meses"}</div>
             <div class="panel">
               <svg class="trend-svg" viewBox="0 0 ${chartW} ${chartH}">${gridLines}${xLabels}
-                <polyline points="${pointsFor("Abertos/Agend.")}" fill="none" stroke="${COLORS.steel}" stroke-width="2"/>${pointDots("Abertos/Agend.", COLORS.steel)}
-                <polyline points="${pointsFor("Concluídos")}" fill="none" stroke="${COLORS.green}" stroke-width="2.2"/>${pointDots("Concluídos", COLORS.green)}
-                <polyline points="${pointsFor("Designados")}" fill="none" stroke="${COLORS.blueMid}" stroke-width="2"/>${pointDots("Designados", COLORS.blueMid)}
+                <polyline points="${pointsFor("Abertos/Agend.")}" fill="none" stroke="${COLORS.steel}" stroke-width="2"/>${pointDots("Abertos/Agend.", COLORS.steel)}${pointLabels("Abertos/Agend.", COLORS.steel, -7)}
+                <polyline points="${pointsFor("Concluídos")}" fill="none" stroke="${COLORS.green}" stroke-width="2.2"/>${pointDots("Concluídos", COLORS.green)}${pointLabels("Concluídos", COLORS.green, -9)}
+                <polyline points="${pointsFor("Designados")}" fill="none" stroke="${COLORS.blueMid}" stroke-width="2"/>${pointDots("Designados", COLORS.blueMid)}${pointLabels("Designados", COLORS.blueMid, 12)}
               </svg>
               <div class="trend-legend"><span class="trend-red">Abertos/Agend.</span><span class="trend-green">Concluídos</span><span class="trend-blue">Designados</span></div>
             </div>

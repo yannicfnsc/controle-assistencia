@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
-  BarChart, Bar, LineChart, Line, PieChart, Pie, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell,
+  BarChart, Bar, LineChart, Line, PieChart, Pie, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell, LabelList,
 } from "recharts";
 import {
   ClipboardList, PlusCircle, ListChecks, BarChart3, ChevronLeft, ChevronRight,
@@ -1645,7 +1645,13 @@ function Relatorio({ records }) {
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <ResponsiveContainer width={130} height={130}>
                 <PieChart>
-                  <Pie data={statusDonut} dataKey="value" nameKey="name" innerRadius={38} outerRadius={58} paddingAngle={2} strokeWidth={0}>
+                  <Pie data={statusDonut} dataKey="value" nameKey="name" innerRadius={38} outerRadius={58} paddingAngle={2} strokeWidth={0} label={({ cx, cy, midAngle, innerRadius, outerRadius, value }) => {
+                    const RADIAN = Math.PI / 180;
+                    const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
+                    const x = cx + radius * Math.cos(-midAngle * RADIAN);
+                    const y = cy + radius * Math.sin(-midAngle * RADIAN);
+                    return value ? <text x={x} y={y} fill="#fff" textAnchor="middle" dominantBaseline="central" fontSize={11} fontWeight={800}>{value}</text> : null;
+                  }} labelLine={false}>
                     {statusDonut.map((d, i) => <Cell key={i} fill={d.color} />)}
                   </Pie>
                   <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: `1px solid ${COLORS.line}` }} />
@@ -1679,9 +1685,9 @@ function Relatorio({ records }) {
               <YAxis tick={{ fontSize: 10.5, fill: COLORS.inkSoft }} axisLine={false} tickLine={false} allowDecimals={false} />
               <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: `1px solid ${COLORS.line}` }} />
               <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Line type="monotone" dataKey="Concluídos" stroke={COLORS.green} strokeWidth={2.2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
-              <Line type="monotone" dataKey="Designados" stroke={COLORS.blueMid} strokeWidth={2.2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
-              <Line type="monotone" dataKey="Abertos/Agend." stroke={COLORS.amber} strokeWidth={2.2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+              <Line type="monotone" dataKey="Concluídos" stroke={COLORS.green} strokeWidth={2.2} dot={{ r: 3 }} activeDot={{ r: 5 }}><LabelList dataKey="Concluídos" position="top" formatter={(v) => v ? v : ""} style={{ fontSize: 10, fontWeight: 700, fill: COLORS.green }} /></Line>
+              <Line type="monotone" dataKey="Designados" stroke={COLORS.blueMid} strokeWidth={2.2} dot={{ r: 3 }} activeDot={{ r: 5 }}><LabelList dataKey="Designados" position="bottom" formatter={(v) => v ? v : ""} style={{ fontSize: 10, fontWeight: 700, fill: COLORS.blueMid }} /></Line>
+              <Line type="monotone" dataKey="Abertos/Agend." stroke={COLORS.amber} strokeWidth={2.2} dot={{ r: 3 }} activeDot={{ r: 5 }}><LabelList dataKey="Abertos/Agend." position="top" formatter={(v) => v ? v : ""} style={{ fontSize: 10, fontWeight: 700, fill: COLORS.amber }} /></Line>
             </LineChart>
           </ResponsiveContainer>
         </Card>

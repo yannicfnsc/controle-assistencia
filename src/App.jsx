@@ -145,7 +145,7 @@ function escapeReportHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
-function exportPrintableReport({ title, subtitle, metrics = [], columns = [], rows = [], notes = [] }) {
+function exportPrintableReport({ title, subtitle, metrics = [], columns = [], rows = [], notes = [], groupBy = null }) {
   const popup = window.open("", "_blank", "width=1100,height=800");
   if (!popup) {
     alert("O navegador bloqueou a janela do relatório. Libere pop-ups para exportar em PDF.");
@@ -160,13 +160,39 @@ function exportPrintableReport({ title, subtitle, metrics = [], columns = [], ro
   `).join("");
 
   const headerHtml = columns.map((c) => `<th>${escapeReportHtml(c.label)}</th>`).join("");
-  const bodyHtml = rows.length
-    ? rows.map((row) => `
-        <tr>
-          ${columns.map((c) => `<td>${escapeReportHtml(row[c.key] || "—")}</td>`).join("")}
+
+  let bodyHtml = "";
+  if (!rows.length) {
+    bodyHtml = `<tr><td colspan="${Math.max(columns.length, 1)}" class="empty">Nenhum registro no período.</td></tr>`;
+  } else if (groupBy?.key) {
+    const groups = {};
+    rows.forEach((row) => {
+      const groupName = String(row[groupBy.key] || groupBy.fallback || "Não atribuído").trim();
+      (groups[groupName] = groups[groupName] || []).push(row);
+    });
+
+    bodyHtml = Object.entries(groups)
+      .sort((a, b) => a[0].localeCompare(b[0], "pt-BR"))
+      .map(([groupName, groupRows]) => `
+        <tr class="group-row">
+          <td colspan="${Math.max(columns.length, 1)}">
+            ${escapeReportHtml(groupBy.label || "Técnico")}: ${escapeReportHtml(groupName)}
+            <span class="group-count">${groupRows.length} visita(s)</span>
+          </td>
         </tr>
-      `).join("")
-    : `<tr><td colspan="${Math.max(columns.length, 1)}" class="empty">Nenhum registro no período.</td></tr>`;
+        ${groupRows.map((row) => `
+          <tr>
+            ${columns.map((c) => `<td>${escapeReportHtml(row[c.key] || "—")}</td>`).join("")}
+          </tr>
+        `).join("")}
+      `).join("");
+  } else {
+    bodyHtml = rows.map((row) => `
+      <tr>
+        ${columns.map((c) => `<td>${escapeReportHtml(row[c.key] || "—")}</td>`).join("")}
+      </tr>
+    `).join("");
+  }
 
   const notesHtml = notes.filter(Boolean).length
     ? `<div class="notes">${notes.filter(Boolean).map((n) => `<div>${escapeReportHtml(n)}</div>`).join("")}</div>`
@@ -193,6 +219,24 @@ function exportPrintableReport({ title, subtitle, metrics = [], columns = [], ro
           th { background: #8E1B1B; color: white; text-align: left; padding: 6px; font-size: 9px; text-transform: uppercase; }
           td { border-bottom: 1px solid #e7d3d3; padding: 5px 6px; vertical-align: top; }
           tr:nth-child(even) td { background: #fff7f7; }
+          .group-row td {
+            background: #F8E3E3 !important;
+            color: #8E1B1B;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: .04em;
+            border-top: 2px solid #C62828;
+            border-bottom: 1px solid #E1B5B5;
+            padding: 7px 8px;
+          }
+          .group-count {
+            float: right;
+            color: #7A4D4D;
+            font-size: 9px;
+            font-weight: 700;
+            text-transform: none;
+            letter-spacing: 0;
+          }
           .empty { text-align: center; padding: 24px; color: #777; }
           .notes { margin: 10px 0; padding: 8px 10px; background: #fff7f7; border-left: 4px solid #C62828; color: #555; }
           .footer { margin-top: 12px; font-size: 9px; color: #888; text-align: right; }
@@ -1515,12 +1559,14 @@ function ProgramacaoDia({ records, onToast }) {
     const concluidas = records.filter(
       (r) => r.previsaoVisita === dateISO && normalizeStatus(r.status) === "concluido"
     );
+    const pendentes = dayRecords.filter((r) => r.previsaoVisita === dateISO && r._status !== "concluido").length;
+
     return {
       entradas: entradas.length,
       programadas: Math.max(programadas, 0),
       concluidas: concluidas.length,
       designados: designados.length,
-    };
+    , pendentes };
   }, [records, dateISO]);
   const diff = stats.programadas - stats.concluidas;
 
@@ -1529,6 +1575,20 @@ function ProgramacaoDia({ records, onToast }) {
       .filter((r) => r.previsaoVisita === dateISO)
       .sort((a, b) => (a.tecnico || "").localeCompare(b.tecnico || ""));
   }, [withStatus, dateISO]);
+
+  const pendentesDoDia = useMemo(
+    () => dayRecords.filter((r) => r.previsaoVisita === dateISO && r._status !== "concluido"),
+    [dayRecords, dateISO]
+  );
+
+  const pendentesPorTecnico = useMemo(() => {
+    const grupos = {};
+    pendentesDoDia.forEach((r) => {
+      const tecnico = r.tecnico || "Não atribuído";
+      (grupos[tecnico] = grupos[tecnico] || []).push(r);
+    });
+    return Object.entries(grupos).sort((a, b) => a[0].localeCompare(b[0], "pt-BR"));
+  }, [pendentesDoDia]);
 
   const byTecnico = useMemo(() => {
     const m = {};
@@ -1548,11 +1608,25 @@ function ProgramacaoDia({ records, onToast }) {
         { label: "Programadas", value: stats.programadas },
         { label: "Concluídas", value: stats.concluidas },
         { label: "Designados", value: stats.designados },
+        { label: "Pendentes", value: stats.pendentes },
       ],
       notes: [
         diff === 0
           ? (stats.programadas > 0 ? "Todas as visitas programadas foram concluídas." : "Nenhuma visita programada para este dia.")
           : diff > 0
+      <div style={{
+        marginTop: 10, border: `1px solid ${COLORS.redLine || COLORS.red}`,
+        borderTop: `4px solid ${COLORS.red}`, borderRadius: 10,
+        background: COLORS.surface, padding: "12px 14px"
+      }}>
+        <div style={{ fontSize: 10, fontWeight: 800, color: COLORS.red, textTransform: "uppercase", letterSpacing: ".06em" }}>
+          Pendentes do dia
+        </div>
+        <div style={{ fontSize: 28, fontWeight: 800, color: COLORS.ink, marginTop: 3 }}>
+          {stats.pendentes}
+        </div>
+      </div>
+
             ? `${diff} visita(s) programada(s) ainda não concluída(s).`
             : `${Math.abs(diff)} conclusão(ões) acima do total programado.`,
       ],
@@ -1561,7 +1635,6 @@ function ProgramacaoDia({ records, onToast }) {
         { key: "cliente", label: "Cliente" },
         { key: "endereco", label: "Endereço" },
         { key: "produto", label: "Produto" },
-        { key: "tecnico", label: "Técnico" },
         { key: "status", label: "Status" },
         { key: "servico", label: "Serviço" },
         { key: "visita", label: "Data visita" },
@@ -1576,6 +1649,11 @@ function ProgramacaoDia({ records, onToast }) {
         servico: r.servicos || "",
         visita: formatBR(r.dataVisita),
       })),
+      groupBy: {
+        key: "tecnico",
+        label: "Técnico",
+        fallback: "Não atribuído",
+      },
     });
   };
 
@@ -1595,6 +1673,49 @@ function ProgramacaoDia({ records, onToast }) {
           ? `${diff} visita(s) programada(s) não concluída(s) no dia.`
           : `${Math.abs(diff)} visita(s) concluída(s) além do programado.`,
       ``,
+      {pendentesDoDia.length > 0 && (
+        <div style={{ marginTop: 20, marginBottom: 20 }}>
+          <div style={{
+            fontFamily: "'Barlow Condensed', sans-serif", fontSize: 12, fontWeight: 800,
+            color: COLORS.red, textTransform: "uppercase", letterSpacing: ".07em",
+            borderBottom: `1px solid ${COLORS.line}`, paddingBottom: 7, marginBottom: 10
+          }}>
+            Pendências do dia
+          </div>
+
+          {pendentesPorTecnico.map(([tecnico, itens]) => (
+            <div key={tecnico} style={{ marginBottom: 14 }}>
+              <div style={{
+                fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 800, fontSize: 12,
+                color: COLORS.red, textTransform: "uppercase", marginBottom: 6
+              }}>
+                {tecnico} ({itens.length})
+              </div>
+              {itens.map((r) => (
+                <div key={r.id} style={{
+                  background: COLORS.surface, border: `1px solid ${COLORS.redLine || COLORS.line}`,
+                  borderRadius: 9, padding: "10px 12px", marginBottom: 7,
+                  display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center"
+                }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 800, fontSize: 13, color: COLORS.ink }}>
+                      {r.numero && <span style={{ color: COLORS.red, marginRight: 7 }}>#{r.numero}</span>}
+                      {r.cliente || "Cliente não informado"}
+                    </div>
+                    <div style={{ fontSize: 11, color: COLORS.inkSoft, marginTop: 2 }}>
+                      {[r.produto, r.servicos].filter(Boolean).join(" • ")}
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: COLORS.red, flexShrink: 0 }}>
+                    {STATUS_META[r._status]?.label || r.status || "Pendente"}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+
       `— PROGRAMAÇÃO PREVISTA —`,
     ];
     if (dayRecords.length === 0) {
@@ -1768,7 +1889,7 @@ function ProgramacaoView({ dayRecords, byTecnico }) {
                           background: COLORS.redSoft, color: COLORS.red, border: `1px solid ${COLORS.redLine}`,
                           fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, fontWeight: 800,
                         }}>
-                          ASSISTÊNCIA #{r.numero}
+                          #{r.numero}
                         </div>
                       )}
                       <div style={{ fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>

@@ -1679,49 +1679,6 @@ function ProgramacaoDia({ records, onToast }) {
           ? `${diff} visita(s) programada(s) não concluída(s) no dia.`
           : `${Math.abs(diff)} visita(s) concluída(s) além do programado.`,
       ``,
-      {pendentesDoDia.length > 0 && (
-        <div style={{ marginTop: 20, marginBottom: 20 }}>
-          <div style={{
-            fontFamily: "'Barlow Condensed', sans-serif", fontSize: 12, fontWeight: 800,
-            color: COLORS.red, textTransform: "uppercase", letterSpacing: ".07em",
-            borderBottom: `1px solid ${COLORS.line}`, paddingBottom: 7, marginBottom: 10
-          }}>
-            Pendências do dia
-          </div>
-
-          {pendentesPorTecnico.map(([tecnico, itens]) => (
-            <div key={tecnico} style={{ marginBottom: 14 }}>
-              <div style={{
-                fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 800, fontSize: 12,
-                color: COLORS.red, textTransform: "uppercase", marginBottom: 6
-              }}>
-                {tecnico} ({itens.length})
-              </div>
-              {itens.map((r) => (
-                <div key={r.id} style={{
-                  background: COLORS.surface, border: `1px solid ${COLORS.redLine || COLORS.line}`,
-                  borderRadius: 9, padding: "10px 12px", marginBottom: 7,
-                  display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center"
-                }}>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontWeight: 800, fontSize: 13, color: COLORS.ink }}>
-                      {r.numero && <span style={{ color: COLORS.red, marginRight: 7 }}>#{r.numero}</span>}
-                      {r.cliente || "Cliente não informado"}
-                    </div>
-                    <div style={{ fontSize: 11, color: COLORS.inkSoft, marginTop: 2 }}>
-                      {[r.produto, r.servicos].filter(Boolean).join(" • ")}
-                    </div>
-                  </div>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: COLORS.red, flexShrink: 0 }}>
-                    {STATUS_META[r._status]?.label || r.status || "Pendente"}
-                  </div>
-                </div>
-              ))}
-            </div>
-          ))}
-        </div>
-      )}
-
       `— PROGRAMAÇÃO PREVISTA —`,
     ];
     if (dayRecords.length === 0) {
@@ -1809,6 +1766,77 @@ function ProgramacaoDia({ records, onToast }) {
       <div style={{ marginTop: 8 }}>
         <OperacaoDoDiaView stats={stats} diff={diff} />
       </div>
+
+      {pendentesDoDia.length > 0 && (
+        <div style={{ marginTop: 20, marginBottom: 20 }}>
+          <div style={{
+            fontFamily: "'Barlow Condensed', sans-serif",
+            fontSize: 12,
+            fontWeight: 800,
+            color: COLORS.red,
+            textTransform: "uppercase",
+            letterSpacing: ".07em",
+            borderBottom: `1px solid ${COLORS.line}`,
+            paddingBottom: 7,
+            marginBottom: 10
+          }}>
+            Pendências do dia
+          </div>
+
+          {pendentesPorTecnico.map(([tecnico, itens]) => (
+            <div key={tecnico} style={{ marginBottom: 14 }}>
+              <div style={{
+                fontFamily: "'Barlow Condensed', sans-serif",
+                fontWeight: 800,
+                fontSize: 12,
+                color: COLORS.red,
+                textTransform: "uppercase",
+                marginBottom: 6
+              }}>
+                {tecnico} ({itens.length})
+              </div>
+
+              {itens.map((r) => (
+                <div key={r.id} style={{
+                  background: COLORS.surface,
+                  border: `1px solid ${COLORS.redLine || COLORS.line}`,
+                  borderRadius: 9,
+                  padding: "10px 12px",
+                  marginBottom: 7,
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: 12,
+                  alignItems: "center"
+                }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 800, fontSize: 13, color: COLORS.ink }}>
+                      {r.numero && (
+                        <span style={{ color: COLORS.red, marginRight: 7 }}>
+                          #{r.numero}
+                        </span>
+                      )}
+                      {r.cliente || "Cliente não informado"}
+                    </div>
+
+                    <div style={{ fontSize: 11, color: COLORS.inkSoft, marginTop: 2 }}>
+                      {[r.produto, r.servicos].filter(Boolean).join(" • ")}
+                    </div>
+                  </div>
+
+                  <div style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    color: COLORS.red,
+                    flexShrink: 0
+                  }}>
+                    {STATUS_META[r._status]?.label || r.status || "Pendente"}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
 
       <div style={{ marginTop: 22 }}>
         <SectionLabel>Programação prevista</SectionLabel>

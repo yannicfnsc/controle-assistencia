@@ -319,7 +319,7 @@ function sheetRowsToRecords(rows) {
     vendedor: col("VENDEDOR"),
     tecnico: col("ASSISTENTE TÉCNICO", "ASSISTENTE TECNICO", "TÉCNICO", "TECNICO"),
     previsaoVisita: col("PREVISÃO VISITA", "PREVISAO VISITA"),
-    dataVisita: col("DATA DA VISITA", "DATA VISITA"),
+    dataVisita: col("DATA DA VISITA", "DATA VISITA", "DATA DA VISTA", "DATA VISTA"),
     status: col("STATUS"),
     servicos: col("SERVIÇOS", "SERVICOS", "SERVIÇO", "SERVICO"),
     observacoes: col("OBSERVAÇÕES", "OBSERVACOES"),
@@ -1317,45 +1317,162 @@ function Relatorio({ records }) {
   }, [periodRecords]);
 
   const exportPeriodPdf = () => {
+    const popup = window.open("", "_blank", "width=1100,height=820");
+    if (!popup) {
+      alert("O navegador bloqueou a janela do relatório. Libere pop-ups para exportar em PDF.");
+      return;
+    }
+
     const titulo = mode === "semanal" ? "Relatório Semanal" : "Relatório Mensal";
-    exportPrintableReport({
-      title: titulo,
-      subtitle: periodLabel,
-      metrics: [
-        { label: "Pedidos", value: periodRecords.length },
-        { label: "Concluídos", value: counts.concluido },
-        { label: "Designados", value: counts.designado },
-        { label: "Abertos/Pendentes", value: abertosPendentes },
-      ],
-      notes: [
-        `SLA: ótimo ${slaSummary.counts.otimo || 0} • bom ${slaSummary.counts.bom || 0} • regular ${slaSummary.counts.regular || 0} • ruim ${slaSummary.counts.ruim || 0}`,
-        `Serviços mais solicitados: ${servicosBreakdown.map(([nome, qtd]) => `${nome} (${qtd})`).join(" • ") || "sem dados"}`,
-      ],
-      columns: [
-        { key: "numero", label: "Assistência" },
-        { key: "entrada", label: "Entrada" },
-        { key: "cliente", label: "Cliente" },
-        { key: "endereco", label: "Endereço" },
-        { key: "produto", label: "Produto" },
-        { key: "tecnico", label: "Técnico" },
-        { key: "previsao", label: "Previsão" },
-        { key: "visita", label: "Visita" },
-        { key: "status", label: "Status" },
-        { key: "servico", label: "Serviço" },
-      ],
-      rows: periodRecords.map((r) => ({
-        numero: r.numero ? `#${r.numero}` : "",
-        entrada: formatBR(r.entrada),
-        cliente: r.cliente || "",
-        endereco: r.endereco || "",
-        produto: r.produto || "",
-        tecnico: r.tecnico || "Não atribuído",
-        previsao: formatBR(r.previsaoVisita),
-        visita: formatBR(r.dataVisita),
-        status: STATUS_META[r._status]?.label || r.status || "",
-        servico: r.servicos || "",
-      })),
-    });
+    const maxTrend = Math.max(
+      1,
+      ...trend.map((x) =>
+        Number(x["Concluídos"] || 0) +
+        Number(x["Designados"] || 0) +
+        Number(x["Abertos/Agend."] || 0)
+      )
+    );
+    const maxServico = Math.max(1, ...servicosBreakdown.map(([, qtd]) => Number(qtd || 0)));
+
+    const statusRows = [
+      ["Concluídos", counts.concluido, COLORS.green],
+      ["Designados", counts.designado, COLORS.blueMid],
+      ["Agendados", counts.agendado, COLORS.amber],
+      ["Abertos", counts.aberto, COLORS.red],
+    ];
+
+    const htmlBars = (rows, maxValue) => rows.map(([label, value, color]) => `
+      <div class="bar-row">
+        <div class="bar-label">${escapeReportHtml(label)}</div>
+        <div class="bar-track">
+          <div class="bar-fill" style="width:${Math.max(2, (Number(value || 0) / Math.max(1, maxValue)) * 100)}%;background:${color}"></div>
+        </div>
+        <div class="bar-value">${escapeReportHtml(value)}</div>
+      </div>
+    `).join("");
+
+    const trendHtml = trend.map((x) => {
+      const total =
+        Number(x["Concluídos"] || 0) +
+        Number(x["Designados"] || 0) +
+        Number(x["Abertos/Agend."] || 0);
+      const c = Number(x["Concluídos"] || 0);
+      const d = Number(x["Designados"] || 0);
+      const a = Number(x["Abertos/Agend."] || 0);
+      return `
+        <div class="trend-item">
+          <div class="trend-bars">
+            <div style="height:${Math.max(2, (c / maxTrend) * 118)}px;background:${COLORS.green}" title="Concluídos: ${c}"></div>
+            <div style="height:${Math.max(2, (d / maxTrend) * 118)}px;background:${COLORS.blueMid}" title="Designados: ${d}"></div>
+            <div style="height:${Math.max(2, (a / maxTrend) * 118)}px;background:${COLORS.amber}" title="Abertos/Agendados: ${a}"></div>
+          </div>
+          <div class="trend-label">${escapeReportHtml(x.label)}</div>
+          <div class="trend-total">${total}</div>
+        </div>
+      `;
+    }).join("");
+
+    const slaRows = SLA_TIERS.map((tier) => [
+      tier.label,
+      slaSummary.counts[tier.key] || 0,
+      tier.color
+    ]);
+    const maxSla = Math.max(1, ...slaRows.map(([, n]) => Number(n || 0)));
+
+    const servicoRows = servicosBreakdown.map(([nome, qtd]) => [nome, qtd, COLORS.steel]);
+
+    popup.document.write(`
+      <!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>${escapeReportHtml(titulo)}</title>
+          <style>
+            @page { size: A4 landscape; margin: 11mm; }
+            * { box-sizing: border-box; }
+            body { font-family: Arial, sans-serif; color:#222; margin:0; font-size:11px; }
+            .top { border-bottom:4px solid #C62828; padding-bottom:9px; margin-bottom:12px; }
+            h1 { margin:0 0 4px; color:#8E1B1B; font-size:21px; }
+            .subtitle { color:#666; font-size:12px; }
+            .metrics { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin:12px 0 16px; }
+            .metric { border:1px solid #E1B5B5; border-top:4px solid #C62828; border-radius:7px; padding:9px 10px; }
+            .metric-label { font-size:9px; color:#666; font-weight:bold; text-transform:uppercase; }
+            .metric-value { font-size:24px; font-weight:800; margin-top:4px; }
+            .grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+            .panel { border:1px solid #ead0d0; border-radius:8px; padding:11px; break-inside:avoid; }
+            .panel h2 { font-size:12px; color:#8E1B1B; text-transform:uppercase; margin:0 0 10px; letter-spacing:.04em; }
+            .bar-row { display:grid; grid-template-columns:120px 1fr 34px; gap:8px; align-items:center; margin:7px 0; }
+            .bar-label { font-size:10px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+            .bar-track { height:12px; background:#F4ECEC; border-radius:6px; overflow:hidden; }
+            .bar-fill { height:100%; border-radius:6px; }
+            .bar-value { font-weight:700; text-align:right; }
+            .trend { display:flex; gap:10px; align-items:flex-end; height:160px; padding:8px 4px 0; border-bottom:1px solid #ddd; }
+            .trend-item { flex:1; min-width:0; text-align:center; }
+            .trend-bars { height:122px; display:flex; gap:2px; align-items:flex-end; justify-content:center; }
+            .trend-bars div { width:18%; min-width:7px; border-radius:3px 3px 0 0; }
+            .trend-label { font-size:9px; color:#666; margin-top:5px; }
+            .trend-total { font-size:9px; font-weight:bold; }
+            .legend { display:flex; gap:14px; margin-top:8px; font-size:9px; color:#666; }
+            .legend span::before { content:""; width:8px; height:8px; display:inline-block; border-radius:2px; margin-right:4px; vertical-align:middle; }
+            .l1::before { background:${COLORS.green}; }
+            .l2::before { background:${COLORS.blueMid}; }
+            .l3::before { background:${COLORS.amber}; }
+            .footer { margin-top:12px; font-size:9px; color:#888; text-align:right; }
+            @media print { body { -webkit-print-color-adjust:exact; print-color-adjust:exact; } }
+          </style>
+        </head>
+        <body>
+          <div class="top">
+            <h1>${escapeReportHtml(titulo)}</h1>
+            <div class="subtitle">${escapeReportHtml(periodLabel)}</div>
+          </div>
+
+          <div class="metrics">
+            <div class="metric"><div class="metric-label">Pedidos</div><div class="metric-value">${periodRecords.length}</div></div>
+            <div class="metric"><div class="metric-label">Concluídos</div><div class="metric-value">${counts.concluido}</div></div>
+            <div class="metric"><div class="metric-label">Designados</div><div class="metric-value">${counts.designado}</div></div>
+            <div class="metric"><div class="metric-label">Abertos/Pendentes</div><div class="metric-value">${abertosPendentes}</div></div>
+          </div>
+
+          <div class="grid">
+            <div class="panel">
+              <h2>Composição do período</h2>
+              ${htmlBars(statusRows, Math.max(1, ...statusRows.map(([,v]) => Number(v || 0))))}
+            </div>
+
+            <div class="panel">
+              <h2>Prazo de atendimento (SLA)</h2>
+              ${slaSummary.total
+                ? htmlBars(slaRows, maxSla)
+                : '<div style="color:#777;padding:12px 0">Nenhum chamado com data de visita disponível neste período.</div>'}
+            </div>
+
+            <div class="panel">
+              <h2>Últimos 8 ${mode === "semanal" ? "semanas" : "meses"}</h2>
+              <div class="trend">${trendHtml}</div>
+              <div class="legend">
+                <span class="l1">Concluídos</span>
+                <span class="l2">Designados</span>
+                <span class="l3">Abertos/Agendados</span>
+              </div>
+            </div>
+
+            <div class="panel">
+              <h2>Serviços mais solicitados</h2>
+              ${servicoRows.length
+                ? htmlBars(servicoRows, maxServico)
+                : '<div style="color:#777;padding:12px 0">Sem dados de serviços.</div>'}
+            </div>
+          </div>
+
+          <div class="footer">Controle de Assistência Técnica • gerado em ${new Date().toLocaleString("pt-BR")}</div>
+          <script>
+            window.onload = () => setTimeout(() => { window.focus(); window.print(); }, 250);
+          <\/script>
+        </body>
+      </html>
+    `);
+    popup.document.close();
   };
 
   return (
@@ -1560,11 +1677,17 @@ function ProgramacaoDia({ records, onToast }) {
       (r) => r.previsaoVisita === dateISO && normalizeStatus(r.status) === "concluido"
     );
 
-    const pendentes = records.filter(
-      (r) =>
+    const pendentes = records.filter((r) => {
+      const status = normalizeStatus(r.status);
+      const servico = String(r.servicos || "").trim().toUpperCase();
+
+      return (
         r.previsaoVisita === dateISO &&
-        normalizeStatus(r.status) !== "concluido"
-    );
+        status !== "concluido" &&
+        status !== "designado" &&
+        servico !== "LEVANTAMENTO DESIGNADO"
+      );
+    });
 
     return {
       entradas: entradas.length,
@@ -1583,7 +1706,16 @@ function ProgramacaoDia({ records, onToast }) {
   }, [withStatus, dateISO]);
 
   const pendentesDoDia = useMemo(
-    () => dayRecords.filter((r) => r.previsaoVisita === dateISO && r._status !== "concluido"),
+    () => dayRecords.filter((r) => {
+      const servico = String(r.servicos || "").trim().toUpperCase();
+
+      return (
+        r.previsaoVisita === dateISO &&
+        r._status !== "concluido" &&
+        r._status !== "designado" &&
+        servico !== "LEVANTAMENTO DESIGNADO"
+      );
+    }),
     [dayRecords, dateISO]
   );
 
@@ -1606,48 +1738,352 @@ function ProgramacaoDia({ records, onToast }) {
   }, [dayRecords]);
 
   const exportDailyPdf = () => {
-    exportPrintableReport({
-      title: "Relatório Diário de Assistência Técnica",
-      subtitle: formatBR(dateISO),
-      metrics: [
-        { label: "Entradas", value: stats.entradas },
-        { label: "Programadas", value: stats.programadas },
-        { label: "Concluídas", value: stats.concluidas },
-        { label: "Designados", value: stats.designados },
-        { label: "Pendentes", value: stats.pendentes },
-      ],
-      notes: [
-        diff === 0
-          ? (stats.programadas > 0 ? "Todas as visitas programadas foram concluídas." : "Nenhuma visita programada para este dia.")
-          : diff > 0
-            ? `${diff} visita(s) programada(s) ainda não concluída(s).`
-            : `${Math.abs(diff)} conclusão(ões) acima do total programado.`,
-      ],
-      columns: [
-        { key: "numero", label: "Assistência" },
-        { key: "cliente", label: "Cliente" },
-        { key: "endereco", label: "Endereço" },
-        { key: "produto", label: "Produto" },
-        { key: "status", label: "Status" },
-        { key: "servico", label: "Serviço" },
-        { key: "visita", label: "Data visita" },
-      ],
-      rows: dayRecords.map((r) => ({
-        numero: r.numero ? `#${r.numero}` : "",
-        cliente: r.cliente || "",
-        endereco: r.endereco || "",
-        produto: r.produto || "",
-        tecnico: r.tecnico || "Não atribuído",
-        status: STATUS_META[r._status]?.label || r.status || "",
-        servico: r.servicos || "",
-        visita: formatBR(r.dataVisita),
-      })),
-      groupBy: {
-        key: "tecnico",
-        label: "Técnico",
-        fallback: "Não atribuído",
-      },
-    });
+    const popup = window.open("", "_blank", "width=1100,height=820");
+
+    if (!popup) {
+      alert("O navegador bloqueou a janela do relatório. Libere pop-ups para exportar em PDF.");
+      return;
+    }
+
+    const programacaoPorTecnico = (() => {
+      const grupos = {};
+      dayRecords.forEach((r) => {
+        const tecnico = r.tecnico || "Não atribuído";
+        (grupos[tecnico] = grupos[tecnico] || []).push(r);
+      });
+      return Object.entries(grupos).sort((a, b) => a[0].localeCompare(b[0], "pt-BR"));
+    })();
+
+    const pendenciasPorTecnicoPdf = (() => {
+      const grupos = {};
+      pendentesDoDia.forEach((r) => {
+        const tecnico = r.tecnico || "Não atribuído";
+        (grupos[tecnico] = grupos[tecnico] || []).push(r);
+      });
+      return Object.entries(grupos).sort((a, b) => a[0].localeCompare(b[0], "pt-BR"));
+    })();
+
+    const statusLabel = (r) =>
+      STATUS_META[r._status]?.label || r.status || "—";
+
+    const pendenciasHtml = pendenciasPorTecnicoPdf.length
+      ? pendenciasPorTecnicoPdf.map(([tecnico, itens]) => `
+          <section class="tech-section">
+            <div class="tech-title">
+              <span>${escapeReportHtml(tecnico)}</span>
+              <span>${itens.length}</span>
+            </div>
+
+            ${itens.map((r) => `
+              <div class="visit-card pending">
+                <div class="visit-main">
+                  <div class="visit-title">
+                    ${r.numero ? `<span class="number">#${escapeReportHtml(r.numero)}</span>` : ""}
+                    ${escapeReportHtml(r.cliente || "Cliente não informado")}
+                  </div>
+                  <div class="visit-sub">
+                    ${escapeReportHtml([r.produto, r.servicos].filter(Boolean).join(" • ") || "—")}
+                  </div>
+                </div>
+                <div class="status pending-status">${escapeReportHtml(statusLabel(r))}</div>
+              </div>
+            `).join("")}
+          </section>
+        `).join("")
+      : `<div class="empty">Nenhuma pendência para o dia.</div>`;
+
+    const programacaoHtml = programacaoPorTecnico.length
+      ? programacaoPorTecnico.map(([tecnico, itens]) => `
+          <section class="tech-section">
+            <div class="tech-title neutral">
+              <span>${escapeReportHtml(tecnico)}</span>
+              <span>${itens.length}</span>
+            </div>
+
+            ${itens.map((r) => `
+              <div class="visit-card">
+                <div class="visit-main">
+                  <div class="visit-title">
+                    ${r.numero ? `<span class="number">#${escapeReportHtml(r.numero)}</span>` : ""}
+                    ${escapeReportHtml(r.cliente || "Cliente não informado")}
+                  </div>
+                  <div class="visit-sub">
+                    ${escapeReportHtml([r.endereco, r.produto, r.servicos].filter(Boolean).join(" • ") || "—")}
+                  </div>
+                </div>
+                <div class="status">${escapeReportHtml(statusLabel(r))}</div>
+              </div>
+            `).join("")}
+          </section>
+        `).join("")
+      : `<div class="empty">Nenhuma visita prevista para esta data.</div>`;
+
+    const diffText =
+      diff === 0
+        ? stats.programadas > 0
+          ? "Todas as visitas programadas foram concluídas."
+          : "Nenhuma visita programada para este dia."
+        : diff > 0
+          ? `${diff} visita(s) programada(s) não foram concluídas no dia.`
+          : `${Math.abs(diff)} conclusão(ões) acima do total programado.`;
+
+    popup.document.write(`
+      <!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>Relatório Diário de Assistência Técnica</title>
+          <style>
+            @page { size: A4 portrait; margin: 10mm; }
+
+            * { box-sizing: border-box; }
+
+            body {
+              margin: 0;
+              font-family: Arial, sans-serif;
+              color: #182430;
+              background: #fff;
+              font-size: 11px;
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+            }
+
+            .header {
+              text-align: center;
+              padding-bottom: 10px;
+              border-bottom: 1px solid #E7C7C7;
+              margin-bottom: 12px;
+            }
+
+            .header .eyebrow {
+              font-size: 9px;
+              color: #A33A3A;
+              font-weight: 700;
+              letter-spacing: .08em;
+              text-transform: uppercase;
+            }
+
+            .header h1 {
+              margin: 3px 0 2px;
+              font-size: 20px;
+              color: #1F2A35;
+            }
+
+            .header .date {
+              font-size: 12px;
+              color: #A02020;
+              font-weight: 700;
+            }
+
+            .section-label {
+              margin: 14px 0 7px;
+              font-size: 10px;
+              color: #A02020;
+              text-transform: uppercase;
+              letter-spacing: .07em;
+              font-weight: 800;
+              border-bottom: 1px solid #E8CACA;
+              padding-bottom: 5px;
+            }
+
+            .metrics {
+              display: grid;
+              grid-template-columns: repeat(2, 1fr);
+              gap: 8px;
+            }
+
+            .metric {
+              border: 1px solid #E6BABA;
+              border-radius: 9px;
+              padding: 9px 11px;
+              background: #fff;
+              break-inside: avoid;
+            }
+
+            .metric:nth-child(1) { border-top: 3px solid #C62828; }
+            .metric:nth-child(2) { border-top: 3px solid #6E88AF; }
+            .metric:nth-child(3) { border-top: 3px solid #2F7D4B; }
+            .metric:nth-child(4) { border-top: 3px solid #C98222; }
+            .metric:nth-child(5) { border-top: 3px solid #B94A48; }
+
+            .metric-label {
+              font-size: 9px;
+              color: #596673;
+              font-weight: 800;
+              text-transform: uppercase;
+              letter-spacing: .05em;
+            }
+
+            .metric-value {
+              margin-top: 3px;
+              font-size: 24px;
+              font-weight: 800;
+              color: #162330;
+            }
+
+            .alert {
+              margin-top: 9px;
+              border: 1px solid #D49A3B;
+              background: #FFF9EF;
+              color: #815C22;
+              border-radius: 8px;
+              padding: 8px 10px;
+            }
+
+            .tech-section {
+              margin-bottom: 10px;
+              break-inside: avoid;
+            }
+
+            .tech-title {
+              display: flex;
+              justify-content: space-between;
+              gap: 10px;
+              margin-bottom: 5px;
+              color: #B33434;
+              font-size: 9px;
+              font-weight: 800;
+              text-transform: uppercase;
+              letter-spacing: .04em;
+            }
+
+            .tech-title.neutral {
+              color: #4E6174;
+            }
+
+            .visit-card {
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              gap: 10px;
+              border: 1px solid #E7D0D0;
+              border-radius: 8px;
+              padding: 8px 9px;
+              margin-bottom: 5px;
+              background: #fff;
+              break-inside: avoid;
+            }
+
+            .visit-card.pending {
+              border-color: #E6A8A8;
+            }
+
+            .visit-main {
+              min-width: 0;
+              flex: 1;
+            }
+
+            .visit-title {
+              font-size: 10px;
+              font-weight: 700;
+              color: #182430;
+            }
+
+            .number {
+              color: #C33E3E;
+              font-weight: 800;
+              margin-right: 5px;
+            }
+
+            .visit-sub {
+              margin-top: 2px;
+              font-size: 9px;
+              color: #607080;
+            }
+
+            .status {
+              flex-shrink: 0;
+              font-size: 9px;
+              font-weight: 700;
+              color: #4E6174;
+              text-align: right;
+            }
+
+            .pending-status {
+              color: #B33434;
+            }
+
+            .empty {
+              padding: 10px;
+              color: #7A8793;
+              border: 1px dashed #D9CACA;
+              border-radius: 8px;
+            }
+
+            .footer {
+              margin-top: 14px;
+              text-align: right;
+              color: #8A939C;
+              font-size: 8px;
+            }
+
+            @media print {
+              body { background: #fff; }
+            }
+          </style>
+        </head>
+
+        <body>
+          <div class="header">
+            <div class="eyebrow">Controle de Assistência Técnica</div>
+            <h1>Relatório Diário</h1>
+            <div class="date">${escapeReportHtml(formatBR(dateISO))}</div>
+          </div>
+
+          <div class="section-label">Operação do dia</div>
+
+          <div class="metrics">
+            <div class="metric">
+              <div class="metric-label">Entradas</div>
+              <div class="metric-value">${stats.entradas}</div>
+            </div>
+
+            <div class="metric">
+              <div class="metric-label">Programadas</div>
+              <div class="metric-value">${stats.programadas}</div>
+            </div>
+
+            <div class="metric">
+              <div class="metric-label">Concluídas</div>
+              <div class="metric-value">${stats.concluidas}</div>
+            </div>
+
+            <div class="metric">
+              <div class="metric-label">Designados</div>
+              <div class="metric-value">${stats.designados}</div>
+            </div>
+
+            <div class="metric">
+              <div class="metric-label">Pendentes</div>
+              <div class="metric-value">${stats.pendentes}</div>
+            </div>
+          </div>
+
+          <div class="alert">${escapeReportHtml(diffText)}</div>
+
+          <div class="section-label">Pendências do dia</div>
+          ${pendenciasHtml}
+
+          <div class="section-label">Programação prevista</div>
+          ${programacaoHtml}
+
+          <div class="footer">
+            Gerado em ${new Date().toLocaleString("pt-BR")}
+          </div>
+
+          <script>
+            window.onload = () => {
+              setTimeout(() => {
+                window.focus();
+                window.print();
+              }, 250);
+            };
+          <\/script>
+        </body>
+      </html>
+    `);
+
+    popup.document.close();
   };
 
   const buildFullText = () => {
@@ -1739,8 +2175,8 @@ function ProgramacaoDia({ records, onToast }) {
       <button
         onClick={exportDailyPdf}
         style={{
-          width: "100%", marginTop: 12, background: COLORS.steel, color: "#fff",
-          border: "none", borderRadius: 8, padding: "12px", fontSize: 13.5, fontWeight: 700, cursor: "pointer",
+          width: "100%", marginTop: 12, background: COLORS.surface, color: COLORS.steel,
+          border: `1px solid ${COLORS.steel}`, borderRadius: 8, padding: "12px", fontSize: 13.5, fontWeight: 700, cursor: "pointer",
           display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
           fontFamily: "'Barlow Condensed', sans-serif", letterSpacing: "0.03em", textTransform: "uppercase",
         }}

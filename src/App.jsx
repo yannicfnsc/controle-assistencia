@@ -868,6 +868,38 @@ function MiniBreakdown({ records, field }) {
    NOVO CHAMADO (form)
    ============================================================ */
 const SERVICO_OPTS = ["LEVANTAMENTO", "LEVANTAMENTO DESIGNADO", "MANUTENÇÃO", "SUPERVISÃO", "ENTREGA", "RETIRADA", "APOIO OPERACIONAL"];
+
+const PRODUTO_OPTS = [
+  "FACHADEIRO",
+  "APARALIXO",
+  "AND. SUPENSO",
+  "ESCORAMENTO",
+  "ESCADA DE PATAMAR",
+  "ANDAIME. TUBULAR",
+  "PROTEÇÃO DE PERIFERIA",
+  "CADEIRINHA",
+];
+
+const VENDEDOR_OPTS = [
+  "ANDRÉ MARQUES",
+  "BIRA",
+  "DORALICE",
+  "GILBERTO",
+  "ROBERTA",
+  "TADEU",
+];
+
+const TECNICO_OPTS = [
+  "CLAUDIO",
+  "DIMAS",
+  "ENILSON",
+  "FELIPE",
+  "FELIPE CORREA",
+  "JEFFERSON",
+  "MARIO",
+  "MOISES",
+  "YANNIC",
+];
 const STATUS_OPTS = [
   { value: "⚪ Aberto", key: "aberto" },
   { value: "🔵 Agendado", key: "agendado" },
@@ -960,15 +992,30 @@ function NovoChamado({ onAdd }) {
           <input style={inputStyle()} value={form.endereco} onChange={set("endereco")} placeholder="Bairro ou cidade" />
         </Field>
         <Field label="Produto">
-          <input style={inputStyle()} value={form.produto} onChange={set("produto")} placeholder="Ex: AND. SUSPENSO, FACHADEIRO..." />
+          <select style={inputStyle()} value={form.produto} onChange={set("produto")}>
+            <option value="">— selecionar —</option>
+            {PRODUTO_OPTS.map((produto) => (
+              <option key={produto} value={produto}>{produto}</option>
+            ))}
+          </select>
         </Field>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
           <Field label="Vendedor">
-            <input style={inputStyle()} value={form.vendedor} onChange={set("vendedor")} />
+            <select style={inputStyle()} value={form.vendedor} onChange={set("vendedor")}>
+              <option value="">— selecionar —</option>
+              {VENDEDOR_OPTS.map((vendedor) => (
+                <option key={vendedor} value={vendedor}>{vendedor}</option>
+              ))}
+            </select>
           </Field>
           <Field label="Assistente técnico">
-            <input style={inputStyle()} value={form.tecnico} onChange={set("tecnico")} />
+            <select style={inputStyle()} value={form.tecnico} onChange={set("tecnico")}>
+              <option value="">— selecionar —</option>
+              {TECNICO_OPTS.map((tecnico) => (
+                <option key={tecnico} value={tecnico}>{tecnico}</option>
+              ))}
+            </select>
           </Field>
         </div>
 

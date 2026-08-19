@@ -33,6 +33,8 @@ const COLORS = {
   blueMidSoft: "#E1E7F0",
   steelSoft: "#F3D6D6",
   red: "#B24B44",
+  redSoft: "#FCE8E8",
+  redLine: "#E7AAAA",
 };
 
 const STATUS_META = {
@@ -129,6 +131,102 @@ function endOfMonth(dt) {
 }
 const WEEKDAY_ABBR = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
 const MONTH_NAMES = ["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
+
+
+/* ============================================================
+   EXPORTAÇÃO PDF — abre uma versão pronta para impressão/PDF
+   ============================================================ */
+function escapeReportHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function exportPrintableReport({ title, subtitle, metrics = [], columns = [], rows = [], notes = [] }) {
+  const popup = window.open("", "_blank", "width=1100,height=800");
+  if (!popup) {
+    alert("O navegador bloqueou a janela do relatório. Libere pop-ups para exportar em PDF.");
+    return;
+  }
+
+  const metricHtml = metrics.map((m) => `
+    <div class="metric">
+      <div class="metric-label">${escapeReportHtml(m.label)}</div>
+      <div class="metric-value">${escapeReportHtml(m.value)}</div>
+    </div>
+  `).join("");
+
+  const headerHtml = columns.map((c) => `<th>${escapeReportHtml(c.label)}</th>`).join("");
+  const bodyHtml = rows.length
+    ? rows.map((row) => `
+        <tr>
+          ${columns.map((c) => `<td>${escapeReportHtml(row[c.key] || "—")}</td>`).join("")}
+        </tr>
+      `).join("")
+    : `<tr><td colspan="${Math.max(columns.length, 1)}" class="empty">Nenhum registro no período.</td></tr>`;
+
+  const notesHtml = notes.filter(Boolean).length
+    ? `<div class="notes">${notes.filter(Boolean).map((n) => `<div>${escapeReportHtml(n)}</div>`).join("")}</div>`
+    : "";
+
+  popup.document.write(`
+    <!doctype html>
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>${escapeReportHtml(title)}</title>
+        <style>
+          @page { size: A4 landscape; margin: 11mm; }
+          * { box-sizing: border-box; }
+          body { font-family: Arial, sans-serif; color: #222; margin: 0; font-size: 11px; }
+          .top { border-bottom: 4px solid #C62828; padding-bottom: 9px; margin-bottom: 12px; }
+          h1 { color: #8E1B1B; margin: 0 0 4px; font-size: 21px; }
+          .subtitle { color: #666; font-size: 12px; }
+          .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 12px 0; }
+          .metric { border: 1px solid #E1B5B5; border-top: 4px solid #C62828; border-radius: 6px; padding: 8px 10px; }
+          .metric-label { color: #666; text-transform: uppercase; font-size: 9px; font-weight: bold; }
+          .metric-value { font-size: 22px; font-weight: bold; margin-top: 4px; }
+          table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+          th { background: #8E1B1B; color: white; text-align: left; padding: 6px; font-size: 9px; text-transform: uppercase; }
+          td { border-bottom: 1px solid #e7d3d3; padding: 5px 6px; vertical-align: top; }
+          tr:nth-child(even) td { background: #fff7f7; }
+          .empty { text-align: center; padding: 24px; color: #777; }
+          .notes { margin: 10px 0; padding: 8px 10px; background: #fff7f7; border-left: 4px solid #C62828; color: #555; }
+          .footer { margin-top: 12px; font-size: 9px; color: #888; text-align: right; }
+          @media print {
+            .no-print { display: none !important; }
+            body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="top">
+          <h1>${escapeReportHtml(title)}</h1>
+          <div class="subtitle">${escapeReportHtml(subtitle)}</div>
+        </div>
+        <div class="metrics">${metricHtml}</div>
+        ${notesHtml}
+        <table>
+          <thead><tr>${headerHtml}</tr></thead>
+          <tbody>${bodyHtml}</tbody>
+        </table>
+        <div class="footer">Controle de Assistência Técnica • gerado em ${new Date().toLocaleString("pt-BR")}</div>
+        <script>
+          window.onload = () => {
+            setTimeout(() => {
+              window.focus();
+              window.print();
+            }, 250);
+          };
+        <\/script>
+      </body>
+    </html>
+  `);
+  popup.document.close();
+}
 
 /* ============================================================
    GOOGLE SHEETS API — leitura em tempo real via Apps Script
@@ -345,6 +443,13 @@ export default function App() {
 
   useEffect(() => {
     loadFromSheets();
+
+    // Mantém o app sincronizado com alterações feitas diretamente na planilha.
+    const refreshTimer = setInterval(() => {
+      loadFromSheets();
+    }, 30000);
+
+    return () => clearInterval(refreshTimer);
   }, [loadFromSheets]);
 
   // A planilha é a fonte oficial. O cadastro de novos chamados grava direto no Apps Script.
@@ -951,9 +1056,15 @@ function Chamados({ records, onUpdate }) {
                   {r.endereco || "—"} {r.produto ? `· ${r.produto}` : ""}
                 </div>
               </div>
-              <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: COLORS.inkSoft, flexShrink: 0 }}>
-                {r.numero ? `#${r.numero}` : ""}
-              </span>
+              {r.numero && (
+                <span style={{
+                  fontFamily: "'IBM Plex Mono', monospace", fontSize: 11.5, fontWeight: 800,
+                  color: COLORS.steelDark, background: COLORS.steelSoft, border: `1px solid ${COLORS.line}`,
+                  borderRadius: 6, padding: "3px 7px", flexShrink: 0,
+                }}>
+                  #{r.numero}
+                </span>
+              )}
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -1161,6 +1272,48 @@ function Relatorio({ records }) {
     return Object.entries(m).sort((a, b) => b[1] - a[1]).slice(0, 7);
   }, [periodRecords]);
 
+  const exportPeriodPdf = () => {
+    const titulo = mode === "semanal" ? "Relatório Semanal" : "Relatório Mensal";
+    exportPrintableReport({
+      title: titulo,
+      subtitle: periodLabel,
+      metrics: [
+        { label: "Pedidos", value: periodRecords.length },
+        { label: "Concluídos", value: counts.concluido },
+        { label: "Designados", value: counts.designado },
+        { label: "Abertos/Pendentes", value: abertosPendentes },
+      ],
+      notes: [
+        `SLA: ótimo ${slaSummary.counts.otimo || 0} • bom ${slaSummary.counts.bom || 0} • regular ${slaSummary.counts.regular || 0} • ruim ${slaSummary.counts.ruim || 0}`,
+        `Serviços mais solicitados: ${servicosBreakdown.map(([nome, qtd]) => `${nome} (${qtd})`).join(" • ") || "sem dados"}`,
+      ],
+      columns: [
+        { key: "numero", label: "Assistência" },
+        { key: "entrada", label: "Entrada" },
+        { key: "cliente", label: "Cliente" },
+        { key: "endereco", label: "Endereço" },
+        { key: "produto", label: "Produto" },
+        { key: "tecnico", label: "Técnico" },
+        { key: "previsao", label: "Previsão" },
+        { key: "visita", label: "Visita" },
+        { key: "status", label: "Status" },
+        { key: "servico", label: "Serviço" },
+      ],
+      rows: periodRecords.map((r) => ({
+        numero: r.numero ? `#${r.numero}` : "",
+        entrada: formatBR(r.entrada),
+        cliente: r.cliente || "",
+        endereco: r.endereco || "",
+        produto: r.produto || "",
+        tecnico: r.tecnico || "Não atribuído",
+        previsao: formatBR(r.previsaoVisita),
+        visita: formatBR(r.dataVisita),
+        status: STATUS_META[r._status]?.label || r.status || "",
+        servico: r.servicos || "",
+      })),
+    });
+  };
+
   return (
     <div>
       <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
@@ -1182,6 +1335,19 @@ function Relatorio({ records }) {
       </div>
 
       {/* TICKET-STYLE REPORT HEADER (signature element) */}
+      <button
+        onClick={exportPeriodPdf}
+        style={{
+          width: "100%", marginBottom: 12, background: COLORS.steel, color: "#fff",
+          border: "none", borderRadius: 8, padding: "11px", fontSize: 13.5, fontWeight: 700,
+          cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+          fontFamily: "'Barlow Condensed', sans-serif", textTransform: "uppercase", letterSpacing: "0.04em",
+        }}
+      >
+        <FileStack size={16} />
+        Exportar {mode === "semanal" ? "semana" : "mês"} em PDF
+      </button>
+
       <div style={{
         background: COLORS.steelDark, borderRadius: "10px 10px 0 0", padding: "12px 14px",
         display: "flex", justifyContent: "space-between", alignItems: "center",
@@ -1346,7 +1512,9 @@ function ProgramacaoDia({ records, onToast }) {
     const entradas = records.filter((r) => r.entrada === dateISO);
     const designados = records.filter((r) => r.previsaoVisita === dateISO && r.servicos === "LEVANTAMENTO DESIGNADO");
     const programadas = records.filter((r) => r.previsaoVisita === dateISO).length - designados.length;
-    const concluidas = records.filter((r) => r.dataVisita === dateISO);
+    const concluidas = records.filter(
+      (r) => r.previsaoVisita === dateISO && normalizeStatus(r.status) === "concluido"
+    );
     return {
       entradas: entradas.length,
       programadas: Math.max(programadas, 0),
@@ -1370,6 +1538,46 @@ function ProgramacaoDia({ records, onToast }) {
     });
     return Object.entries(m).sort((a, b) => a[0].localeCompare(b[0]));
   }, [dayRecords]);
+
+  const exportDailyPdf = () => {
+    exportPrintableReport({
+      title: "Relatório Diário de Assistência Técnica",
+      subtitle: formatBR(dateISO),
+      metrics: [
+        { label: "Entradas", value: stats.entradas },
+        { label: "Programadas", value: stats.programadas },
+        { label: "Concluídas", value: stats.concluidas },
+        { label: "Designados", value: stats.designados },
+      ],
+      notes: [
+        diff === 0
+          ? (stats.programadas > 0 ? "Todas as visitas programadas foram concluídas." : "Nenhuma visita programada para este dia.")
+          : diff > 0
+            ? `${diff} visita(s) programada(s) ainda não concluída(s).`
+            : `${Math.abs(diff)} conclusão(ões) acima do total programado.`,
+      ],
+      columns: [
+        { key: "numero", label: "Assistência" },
+        { key: "cliente", label: "Cliente" },
+        { key: "endereco", label: "Endereço" },
+        { key: "produto", label: "Produto" },
+        { key: "tecnico", label: "Técnico" },
+        { key: "status", label: "Status" },
+        { key: "servico", label: "Serviço" },
+        { key: "visita", label: "Data visita" },
+      ],
+      rows: dayRecords.map((r) => ({
+        numero: r.numero ? `#${r.numero}` : "",
+        cliente: r.cliente || "",
+        endereco: r.endereco || "",
+        produto: r.produto || "",
+        tecnico: r.tecnico || "Não atribuído",
+        status: STATUS_META[r._status]?.label || r.status || "",
+        servico: r.servicos || "",
+        visita: formatBR(r.dataVisita),
+      })),
+    });
+  };
 
   const buildFullText = () => {
     const [y, m, d] = dateISO.split("-");
@@ -1458,27 +1666,17 @@ function ProgramacaoDia({ records, onToast }) {
       </div>
 
       <button
-        onClick={copyAll}
+        onClick={exportDailyPdf}
         style={{
-          width: "100%", marginTop: 12, background: copiedAll ? COLORS.green : COLORS.steel, color: "#fff",
+          width: "100%", marginTop: 12, background: COLORS.steel, color: "#fff",
           border: "none", borderRadius: 8, padding: "12px", fontSize: 13.5, fontWeight: 700, cursor: "pointer",
           display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
           fontFamily: "'Barlow Condensed', sans-serif", letterSpacing: "0.03em", textTransform: "uppercase",
         }}
       >
-        {copiedAll ? <ClipboardCheck size={16} /> : <Copy size={16} />}
-        {copiedAll ? "Copiado!" : "Copiar relatório do dia"}
+        <FileStack size={16} />
+        Exportar relatório em PDF
       </button>
-      <button
-        onClick={() => setShowTextModal(true)}
-        style={{ ...ghostButtonStyle, marginTop: 8 }}
-      >
-        Ver texto pra copiar manualmente
-      </button>
-
-      {showTextModal && (
-        <TextShareModal text={buildFullText()} onClose={() => setShowTextModal(false)} />
-      )}
 
       <SectionLabel>Operação do dia</SectionLabel>
       <div style={{ marginTop: 8 }}>
@@ -1564,6 +1762,15 @@ function ProgramacaoView({ dayRecords, byTecnico }) {
                 <Card key={r.id} style={{ padding: 10 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
                     <div style={{ minWidth: 0 }}>
+                      {r.numero && (
+                        <div style={{
+                          display: "inline-block", marginBottom: 4, padding: "2px 7px", borderRadius: 6,
+                          background: COLORS.redSoft, color: COLORS.red, border: `1px solid ${COLORS.redLine}`,
+                          fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, fontWeight: 800,
+                        }}>
+                          ASSISTÊNCIA #{r.numero}
+                        </div>
+                      )}
                       <div style={{ fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                         {r.cliente || "Sem cliente"}
                       </div>

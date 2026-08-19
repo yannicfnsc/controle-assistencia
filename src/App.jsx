@@ -1559,14 +1559,20 @@ function ProgramacaoDia({ records, onToast }) {
     const concluidas = records.filter(
       (r) => r.previsaoVisita === dateISO && normalizeStatus(r.status) === "concluido"
     );
-    const pendentes = dayRecords.filter((r) => r.previsaoVisita === dateISO && r._status !== "concluido").length;
+
+    const pendentes = records.filter(
+      (r) =>
+        r.previsaoVisita === dateISO &&
+        normalizeStatus(r.status) !== "concluido"
+    );
 
     return {
       entradas: entradas.length,
       programadas: Math.max(programadas, 0),
       concluidas: concluidas.length,
       designados: designados.length,
-    , pendentes };
+      pendentes: pendentes.length,
+    };
   }, [records, dateISO]);
   const diff = stats.programadas - stats.concluidas;
 

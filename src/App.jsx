@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
-  BarChart, Bar, LineChart, Line, PieChart, Pie, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell, LabelList,
+  BarChart, Bar, LineChart, Line, PieChart, Pie, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell,
 } from "recharts";
 import {
   ClipboardList, PlusCircle, ListChecks, BarChart3, ChevronLeft, ChevronRight,
@@ -591,15 +591,26 @@ export default function App() {
     try {
       setSaving(true);
 
+      const previsaoFinal = patch.previsaoVisita ?? atual.previsaoVisita ?? "";
+      const servicoFinal = patch.servicos ?? atual.servicos ?? "";
+
       const payload = {
         acao: "editar",
         numero: atual.numero,
         produto: patch.produto ?? atual.produto ?? "",
         vendedor: patch.vendedor ?? atual.vendedor ?? "",
         tecnico: patch.tecnico ?? atual.tecnico ?? "",
-        previsaoVisita: patch.previsaoVisita ?? atual.previsaoVisita ?? "",
+
+        // Envia os dois nomes para ficar compatível com as versões do Apps Script
+        // usadas no cadastro e na edição.
+        previsaoVisita: previsaoFinal,
+        previsao: previsaoFinal,
+
         dataVisita: patch.dataVisita ?? atual.dataVisita ?? "",
-        servicos: patch.servicos ?? atual.servicos ?? "",
+
+        servicos: servicoFinal,
+        servico: servicoFinal,
+
         observacoes: patch.observacoes ?? atual.observacoes ?? "",
       };
 
@@ -1645,13 +1656,7 @@ function Relatorio({ records }) {
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <ResponsiveContainer width={130} height={130}>
                 <PieChart>
-                  <Pie data={statusDonut} dataKey="value" nameKey="name" innerRadius={38} outerRadius={58} paddingAngle={2} strokeWidth={0} label={({ cx, cy, midAngle, innerRadius, outerRadius, value }) => {
-                    const RADIAN = Math.PI / 180;
-                    const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
-                    const x = cx + radius * Math.cos(-midAngle * RADIAN);
-                    const y = cy + radius * Math.sin(-midAngle * RADIAN);
-                    return value ? <text x={x} y={y} fill="#fff" textAnchor="middle" dominantBaseline="central" fontSize={11} fontWeight={800}>{value}</text> : null;
-                  }} labelLine={false}>
+                  <Pie data={statusDonut} dataKey="value" nameKey="name" innerRadius={38} outerRadius={58} paddingAngle={2} strokeWidth={0}>
                     {statusDonut.map((d, i) => <Cell key={i} fill={d.color} />)}
                   </Pie>
                   <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: `1px solid ${COLORS.line}` }} />
@@ -1685,9 +1690,9 @@ function Relatorio({ records }) {
               <YAxis tick={{ fontSize: 10.5, fill: COLORS.inkSoft }} axisLine={false} tickLine={false} allowDecimals={false} />
               <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: `1px solid ${COLORS.line}` }} />
               <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Line type="monotone" dataKey="Concluídos" stroke={COLORS.green} strokeWidth={2.2} dot={{ r: 3 }} activeDot={{ r: 5 }}><LabelList dataKey="Concluídos" position="top" formatter={(v) => v ? v : ""} style={{ fontSize: 10, fontWeight: 700, fill: COLORS.green }} /></Line>
-              <Line type="monotone" dataKey="Designados" stroke={COLORS.blueMid} strokeWidth={2.2} dot={{ r: 3 }} activeDot={{ r: 5 }}><LabelList dataKey="Designados" position="bottom" formatter={(v) => v ? v : ""} style={{ fontSize: 10, fontWeight: 700, fill: COLORS.blueMid }} /></Line>
-              <Line type="monotone" dataKey="Abertos/Agend." stroke={COLORS.amber} strokeWidth={2.2} dot={{ r: 3 }} activeDot={{ r: 5 }}><LabelList dataKey="Abertos/Agend." position="top" formatter={(v) => v ? v : ""} style={{ fontSize: 10, fontWeight: 700, fill: COLORS.amber }} /></Line>
+              <Line type="monotone" dataKey="Concluídos" stroke={COLORS.green} strokeWidth={2.2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+              <Line type="monotone" dataKey="Designados" stroke={COLORS.blueMid} strokeWidth={2.2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+              <Line type="monotone" dataKey="Abertos/Agend." stroke={COLORS.amber} strokeWidth={2.2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
             </LineChart>
           </ResponsiveContainer>
         </Card>

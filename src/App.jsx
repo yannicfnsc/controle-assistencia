@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
-  BarChart, Bar, LineChart, Line, PieChart, Pie, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell,
+  BarChart, Bar, LineChart, Line, PieChart, Pie, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell, LabelList,
 } from "recharts";
 import {
   ClipboardList, PlusCircle, ListChecks, BarChart3, ChevronLeft, ChevronRight,
@@ -1343,7 +1343,7 @@ function Relatorio({ records }) {
   const [mode, setMode] = useState("semanal"); // semanal | mensal
   const [refDate, setRefDate] = useState(new Date());
 
-  const withStatus = useMemo(() => records.map((r) => ({ ...r, _status: normalizeStatus(r.status) })), [records]);
+  const withStatus = useMemo(() => records.map((r) => ({ ...r, _status: effectiveStatus(r) })), [records]);
 
   const periodStart = mode === "semanal" ? startOfWeek(refDate) : startOfMonth(refDate);
   const periodEnd = mode === "semanal" ? endOfWeek(refDate) : endOfMonth(refDate);
@@ -1353,9 +1353,16 @@ function Relatorio({ records }) {
     [withStatus, periodStart, periodEnd]
   );
 
-  const counts = { concluido: 0, designado: 0, agendado: 0, aberto: 0 };
-  periodRecords.forEach((r) => counts[r._status]++);
-  const abertosPendentes = counts.aberto + counts.agendado;
+  const reportGroup = (r) => {
+    if (r._status === "concluido") return "concluido";
+    if (r._status === "designado" || String(r.servicos || "").trim().toUpperCase() === "LEVANTAMENTO DESIGNADO") return "designado";
+    if (r._status === "aberto") return "aberto";
+    return "pendente"; // Agendado ou Atrasado
+  };
+
+  const counts = { concluido: 0, designado: 0, aberto: 0, pendente: 0 };
+  periodRecords.forEach((r) => counts[reportGroup(r)]++);
+  const abertosPendentes = counts.aberto + counts.pendente;
 
   // trend: last 8 periods
   const trend = useMemo(() => {
@@ -1365,11 +1372,11 @@ function Relatorio({ records }) {
       const s = mode === "semanal" ? startOfWeek(ref) : startOfMonth(ref);
       const e = mode === "semanal" ? endOfWeek(ref) : endOfMonth(ref);
       const recs = withStatus.filter((r) => { const d = parseISO(r.entrada); return d && d >= s && d <= e; });
-      const c = { concluido: 0, designado: 0, agendado: 0, aberto: 0 };
-      recs.forEach((r) => c[r._status]++);
+      const c = { concluido: 0, designado: 0, aberto: 0, pendente: 0 };
+      recs.forEach((r) => c[reportGroup(r)]++);
       arr.push({
         label: mode === "semanal" ? `${s.getDate()}/${s.getMonth() + 1}` : `${MONTH_NAMES[s.getMonth()].slice(0, 3)}`,
-        Concluídos: c.concluido, Designados: c.designado, "Abertos/Agend.": c.aberto + c.agendado,
+        Concluídos: c.concluido, Designados: c.designado, Abertos: c.aberto, Pendentes: c.pendente,
       });
     }
     return arr;
@@ -1395,11 +1402,12 @@ function Relatorio({ records }) {
   }, [periodRecords]);
 
   // status composition donut for the period
-  const statusDonut = useMemo(() => {
-    return STATUS_ORDER.filter((k) => k !== "atrasado").map((k) => ({
-      name: STATUS_META[k].short, value: counts[k] || 0, color: STATUS_META[k].color,
-    })).filter((d) => d.value > 0);
-  }, [counts]);
+  const statusDonut = useMemo(() => ([
+    { name: "Aberto", value: counts.aberto || 0, color: COLORS.amber },
+    { name: "Pendente", value: counts.pendente || 0, color: COLORS.red },
+    { name: "Designado", value: counts.designado || 0, color: COLORS.blueMid },
+    { name: "Concluído", value: counts.concluido || 0, color: COLORS.green },
+  ]).filter((d) => d.value > 0), [counts]);
 
   // serviços ranking for the period
   const servicosBreakdown = useMemo(() => {
@@ -1461,7 +1469,7 @@ function Relatorio({ records }) {
     const chartW = 620, chartH = 205, padL = 34, padR = 14, padT = 12, padB = 30;
     const plotW = chartW - padL - padR, plotH = chartH - padT - padB;
     const maxTrend = Math.max(1, ...trend.flatMap((x) => [
-      Number(x["Concluídos"] || 0), Number(x["Designados"] || 0), Number(x["Abertos/Agend."] || 0)
+      Number(x["Concluídos"] || 0), Number(x["Designados"] || 0), Number(x["Abertos"] || 0), Number(x["Pendentes"] || 0)
     ]));
     const niceMax = Math.max(10, Math.ceil(maxTrend / 10) * 10);
     const xAt = (i) => padL + (trend.length <= 1 ? plotW / 2 : (i * plotW) / (trend.length - 1));
@@ -1529,7 +1537,7 @@ function Relatorio({ records }) {
             .trend-svg { width:100%; height:auto; display:block; }
             .trend-legend { display:flex; gap:16px; justify-content:center; margin-top:2px; font-size:8px; color:#666; }
             .trend-legend span::before { content:""; width:14px; height:2px; display:inline-block; margin-right:4px; vertical-align:middle; }
-            .trend-green::before { background:${COLORS.green}; } .trend-blue::before { background:${COLORS.blueMid}; } .trend-red::before { background:${COLORS.steel}; }
+            .trend-green::before { background:${COLORS.green}; } .trend-blue::before { background:${COLORS.blueMid}; } .trend-open::before { background:${COLORS.amber}; } .trend-pending::before { background:${COLORS.red}; }
             .sla-bar { height:12px; border-radius:7px; overflow:hidden; display:flex; background:#F4ECEC; margin:2px 0 8px; }
             .sla-bar span { height:100%; display:block; }
             .sla-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:6px 12px; }
@@ -1564,11 +1572,12 @@ function Relatorio({ records }) {
             <div class="section-title">Últimos 8 ${mode === "semanal" ? "semanas" : "meses"}</div>
             <div class="panel">
               <svg class="trend-svg" viewBox="0 0 ${chartW} ${chartH}">${gridLines}${xLabels}
-                <polyline points="${pointsFor("Abertos/Agend.")}" fill="none" stroke="${COLORS.steel}" stroke-width="2"/>${pointDots("Abertos/Agend.", COLORS.steel)}${pointLabels("Abertos/Agend.", COLORS.steel, -7)}
+                <polyline points="${pointsFor("Abertos")}" fill="none" stroke="${COLORS.amber}" stroke-width="2"/>${pointDots("Abertos", COLORS.amber)}${pointLabels("Abertos", COLORS.amber, -7)}
+                <polyline points="${pointsFor("Pendentes")}" fill="none" stroke="${COLORS.red}" stroke-width="2"/>${pointDots("Pendentes", COLORS.red)}${pointLabels("Pendentes", COLORS.red, 12)}
                 <polyline points="${pointsFor("Concluídos")}" fill="none" stroke="${COLORS.green}" stroke-width="2.2"/>${pointDots("Concluídos", COLORS.green)}${pointLabels("Concluídos", COLORS.green, -9)}
                 <polyline points="${pointsFor("Designados")}" fill="none" stroke="${COLORS.blueMid}" stroke-width="2"/>${pointDots("Designados", COLORS.blueMid)}${pointLabels("Designados", COLORS.blueMid, 12)}
               </svg>
-              <div class="trend-legend"><span class="trend-red">Abertos/Agend.</span><span class="trend-green">Concluídos</span><span class="trend-blue">Designados</span></div>
+              <div class="trend-legend"><span class="trend-open">Abertos</span><span class="trend-pending">Pendentes</span><span class="trend-green">Concluídos</span><span class="trend-blue">Designados</span></div>
             </div>
 
             <div class="section-title">Prazo de atendimento (SLA) no período</div>
@@ -1645,7 +1654,7 @@ function Relatorio({ records }) {
           <TicketMetric label="Pedidos no período" value={periodRecords.length} tone="steel" icon={FileStack} />
           <TicketMetric label="Concluídos" value={counts.concluido} tone="green" icon={Check} />
           <TicketMetric label="Designados" value={counts.designado} tone="blueMid" icon={CircleDot} />
-          <TicketMetric label="Abertos ou pendentes" value={abertosPendentes} tone="amber" icon={Clock} sub={`${counts.aberto} aberto(s) · ${counts.agendado} agendado(s)`} />
+          <TicketMetric label="Abertos ou pendentes" value={abertosPendentes} tone="amber" icon={Clock} sub={`${counts.aberto} aberto(s) · ${counts.pendente} pendente(s)`} />
         </div>
       </div>
 
@@ -1684,15 +1693,16 @@ function Relatorio({ records }) {
         <SectionLabel>Últimos 8 {mode === "semanal" ? "semanas" : "meses"}</SectionLabel>
         <Card style={{ padding: "12px 8px 6px", marginTop: 8 }}>
           <ResponsiveContainer width="100%" height={200}>
-            <LineChart data={trend} margin={{ top: 4, right: 8, left: -22, bottom: 0 }}>
+            <LineChart data={trend} margin={{ top: 18, right: 8, left: -22, bottom: 12 }}>
               <CartesianGrid strokeDasharray="2 4" stroke={COLORS.lineSoft} vertical={false} />
               <XAxis dataKey="label" tick={{ fontSize: 10.5, fill: COLORS.inkSoft }} axisLine={{ stroke: COLORS.line }} tickLine={false} />
               <YAxis tick={{ fontSize: 10.5, fill: COLORS.inkSoft }} axisLine={false} tickLine={false} allowDecimals={false} />
               <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: `1px solid ${COLORS.line}` }} />
               <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Line type="monotone" dataKey="Concluídos" stroke={COLORS.green} strokeWidth={2.2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
-              <Line type="monotone" dataKey="Designados" stroke={COLORS.blueMid} strokeWidth={2.2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
-              <Line type="monotone" dataKey="Abertos/Agend." stroke={COLORS.amber} strokeWidth={2.2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+              <Line type="monotone" dataKey="Concluídos" stroke={COLORS.green} strokeWidth={2.2} dot={{ r: 3 }} activeDot={{ r: 5 }}><LabelList dataKey="Concluídos" position="top" formatter={(v) => v ? v : ""} style={{ fontSize: 10, fontWeight: 700, fill: COLORS.green }} /></Line>
+              <Line type="monotone" dataKey="Designados" stroke={COLORS.blueMid} strokeWidth={2.2} dot={{ r: 3 }} activeDot={{ r: 5 }}><LabelList dataKey="Designados" position="bottom" formatter={(v) => v ? v : ""} style={{ fontSize: 10, fontWeight: 700, fill: COLORS.blueMid }} /></Line>
+              <Line type="monotone" dataKey="Abertos" stroke={COLORS.amber} strokeWidth={2.2} dot={{ r: 3 }} activeDot={{ r: 5 }}><LabelList dataKey="Abertos" position="top" formatter={(v) => v ? v : ""} style={{ fontSize: 10, fontWeight: 700, fill: COLORS.amber }} /></Line>
+              <Line type="monotone" dataKey="Pendentes" stroke={COLORS.red} strokeWidth={2.2} dot={{ r: 3 }} activeDot={{ r: 5 }}><LabelList dataKey="Pendentes" position="bottom" formatter={(v) => v ? v : ""} style={{ fontSize: 10, fontWeight: 700, fill: COLORS.red }} /></Line>
             </LineChart>
           </ResponsiveContainer>
         </Card>
